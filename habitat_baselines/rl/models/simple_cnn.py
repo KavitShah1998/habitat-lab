@@ -4,6 +4,8 @@ import numpy as np
 import torch
 from torch import nn as nn
 
+RGB_KEYS = ['rgb', 'arm_rgb', '3rd_rgb']
+DEPTH_KEYS = ['depth', 'arm_depth', '3rd_depth']
 
 class SimpleCNN(nn.Module):
     r"""A Simple 3-Conv CNN followed by a fully connected layer
@@ -21,21 +23,18 @@ class SimpleCNN(nn.Module):
         output_size,
     ):
         super().__init__()
-
-        if "rgb" in observation_space.spaces:
-            self._n_input_rgb = observation_space.spaces["rgb"].shape[2]
-        else:
-            self._n_input_rgb = 0
-
-        if "depth" in observation_space.spaces:
-            self._n_input_depth = observation_space.spaces["depth"].shape[2]
-        else:
-            self._n_input_depth = 0
-
-        if 'arm_rgb' in observation_space.spaces:
-            self._n_input_rgb += 3
-        if 'arm_depth' in observation_space.spaces:
-            self._n_input_depth += 1
+        rgb_shape = None
+        self._n_input_rgb = 0
+        for k in RGB_KEYS:
+            if k in observation_space.spaces:
+                self._n_input_rgb += 3
+                rgb_shape = observation_space.spaces[k].shape[:2]
+        depth_shape = None
+        self._n_input_depth = 0
+        for k in DEPTH_KEYS:
+            if k in observation_space.spaces:
+                self._n_input_depth += 1
+                depth_shape = observation_space.spaces[k].shape[:2]
 
         # kernel size for different CNN layers
         self._cnn_layers_kernel_size = [(8, 8), (4, 4), (3, 3)]
@@ -45,11 +44,11 @@ class SimpleCNN(nn.Module):
 
         if self._n_input_rgb > 0:
             cnn_dims = np.array(
-                observation_space.spaces["rgb"].shape[:2], dtype=np.float32
+                rgb_shape, dtype=np.float32
             )
         elif self._n_input_depth > 0:
             cnn_dims = np.array(
-                observation_space.spaces["depth"].shape[:2], dtype=np.float32
+                depth_shape, dtype=np.float32
             )
 
         if self.is_blind:
@@ -139,25 +138,21 @@ class SimpleCNN(nn.Module):
 
     def forward(self, observations: Dict[str, torch.Tensor]):
         cnn_input = []
-        if self._n_input_rgb > 0:
-            rgb_observations = observations["rgb"]
-            # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
-            rgb_observations = rgb_observations.permute(0, 3, 1, 2)
-            rgb_observations = (
-                rgb_observations.float() / 255.0
-            )  # normalize RGB
-            cnn_input.append(rgb_observations)
-
-        if self._n_input_depth > 0:
-            depth_observations = observations["depth"]
-            # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
-            depth_observations = depth_observations.permute(0, 3, 1, 2)
-            cnn_input.append(depth_observations)
-
-        if 'arm_rgb' in observations:
-            cnn_input.append(observations['arm_rgb'].permute(0,3,1,2))
-        if 'arm_depth' in observations:
-            cnn_input.append(observations['arm_depth'].permute(0,3,1,2))
+        for k in RGB_KEYS:
+            if k in observations:
+                rgb_observations = observations[k]
+                # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
+                rgb_observations = rgb_observations.permute(0, 3, 1, 2)
+                rgb_observations = (
+                    rgb_observations.float() / 255.0
+                )  # normalize RGB
+                cnn_input.append(rgb_observations)
+        for k in DEPTH_KEYS:
+            if k in observations:
+                depth_observations = observations[k]
+                # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
+                depth_observations = depth_observations.permute(0, 3, 1, 2)
+                cnn_input.append(depth_observations)
 
         cnn_inputs = torch.cat(cnn_input, dim=1)
 
