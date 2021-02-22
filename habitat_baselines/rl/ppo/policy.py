@@ -133,7 +133,8 @@ class PointNavBaselinePolicy(Policy):
             observation_space=observation_space,
             action_space=action_space,
             hidden_size=config.RL.PPO.hidden_size,
-            fuse_states=config.RL.POLICY.fuse_states
+            fuse_states=config.RL.POLICY.fuse_states,
+            force_blind=config.RL.POLICY.force_blind
         )
 
 
@@ -167,7 +168,8 @@ class PointNavBaselineNet(Net):
         self,
         observation_space: spaces.Dict,
         hidden_size: int,
-        fuse_states
+        fuse_states,
+        force_blind
     ):
         super().__init__()
 
@@ -191,7 +193,7 @@ class PointNavBaselineNet(Net):
                 {"rgb": observation_space.spaces[ImageGoalSensor.cls_uuid]}
             )
             self.goal_visual_encoder = SimpleCNN(
-                goal_observation_space, hidden_size
+                goal_observation_space, hidden_size, False
             )
             self._n_input_goal = hidden_size
         else:
@@ -201,7 +203,8 @@ class PointNavBaselineNet(Net):
 
         self._hidden_size = hidden_size
 
-        self.visual_encoder = SimpleCNN(observation_space, hidden_size)
+        self.visual_encoder = SimpleCNN(observation_space, hidden_size,
+                force_blind)
 
         self.state_encoder = build_rnn_state_encoder(
             (0 if self.is_blind else self._hidden_size) + self._n_input_goal,

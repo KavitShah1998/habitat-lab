@@ -21,8 +21,15 @@ class SimpleCNN(nn.Module):
         self,
         observation_space,
         output_size,
+        force_blind
     ):
         super().__init__()
+        if force_blind:
+            self.cnn = nn.Sequential()
+            self._n_input_rgb = 0
+            self._n_input_depth = 0
+            return
+
         rgb_shape = None
         self._n_input_rgb = 0
         for k in RGB_KEYS:
