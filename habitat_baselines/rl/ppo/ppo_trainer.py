@@ -768,7 +768,7 @@ class PPOTrainer(BaseRLTrainer):
 
         _, _, n_tasks = get_distrib_size()
         self.config.defrost()
-        self.N_TASKS = n_tasks
+        self.config.N_TASKS = n_tasks
         self.config.freeze()
 
         with (
