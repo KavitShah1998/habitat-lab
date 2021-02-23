@@ -238,10 +238,16 @@ class PointNavBaselineNet(Net):
             image_goal = observations[ImageGoalSensor.cls_uuid]
             target_encoding = self.goal_visual_encoder({"rgb": image_goal})
         else:
-            target_encoding = torch.cat([observations[k] for k in
-                self.fuse_states], dim=-1)
+            if len(self.fuse_states) > 0:
+                target_encoding = torch.cat([observations[k] for k in
+                    self.fuse_states], dim=-1)
+            else:
+                target_encoding = None
 
-        x = [target_encoding]
+        if target_encoding is None:
+            x = []
+        else:
+            x = [target_encoding]
 
         if not self.is_blind:
             perception_embed = self.visual_encoder(observations)
