@@ -130,28 +130,28 @@ class BaseTrainer:
 
 
 
-        with CustomLogger(not self.config.no_wb, args, self.config) as writer:
-            if self.config.EVAL.EMPTY:
-                self._eval_checkpoint_nodes(
-                    self.config.EVAL_CKPT_PATH_DIR,
-                    writer,
-                    checkpoint_index=0,
-                )
-            elif os.path.isfile(self.config.EVAL_CKPT_PATH_DIR):
-                # evaluate singe checkpoint
-                proposed_index = get_checkpoint_id(
-                    self.config.EVAL_CKPT_PATH_DIR
-                )
-                if proposed_index is not None:
-                    ckpt_idx = proposed_index
-                else:
-                    ckpt_idx = 0
-                self._eval_checkpoint_nodes(
-                    self.config.EVAL_CKPT_PATH_DIR,
-                    writer,
-                    checkpoint_index=ckpt_idx,
-                )
+        if self.config.EVAL.EMPTY:
+            self._eval_checkpoint_nodes(
+                self.config.EVAL_CKPT_PATH_DIR,
+                checkpoint_index=0,
+                args=args
+            )
+        elif os.path.isfile(self.config.EVAL_CKPT_PATH_DIR):
+            # evaluate singe checkpoint
+            proposed_index = get_checkpoint_id(
+                self.config.EVAL_CKPT_PATH_DIR
+            )
+            if proposed_index is not None:
+                ckpt_idx = proposed_index
             else:
+                ckpt_idx = 0
+            self._eval_checkpoint_nodes(
+                self.config.EVAL_CKPT_PATH_DIR,
+                checkpoint_index=ckpt_idx,
+                args=args
+            )
+        else:
+            with CustomLogger(not self.config.no_wb, args, self.config) as writer:
                 # evaluate multiple checkpoints in order
                 prev_ckpt_ind = -1
                 while True:
@@ -169,8 +169,10 @@ class BaseTrainer:
                         checkpoint_index=prev_ckpt_ind,
                     )
 
-    def _eval_checkpoint_nodes(self, checkpoint_path, writer,
-            checkpoint_index):
+    def _eval_checkpoint_nodes(self, checkpoint_path, checkpoint_index, args):
+        from method.orp_log_adapter import CustomLogger
+        import random
+        import string
         if 'EVAL_NODE' in self.config:
             if isinstance(self.config.EVAL_NODE, str):
                 eval_nodes = eval(self.config.EVAL_NODE)
@@ -184,19 +186,25 @@ class BaseTrainer:
 
         orig_hab_set = self.config.hab_set
 
+        base_prefix = args.prefix
         for eval_node in eval_nodes:
             if eval_node is not None:
-                self.config.defrost()
-                hab_sets = orig_hab_set.split(',')
-                if len(hab_sets) == 0:
-                    hab_sets = []
-                hab_sets.append("TASK_CONFIG.EVAL_NODE=%i" % eval_node)
-                self.config.hab_set = ','.join(hab_sets)
-                self.config.freeze()
-            self._eval_checkpoint(
-                    checkpoint_path,
-                    writer,
-                    checkpoint_index)
+                rnd_ident = ''.join(random.sample(string.ascii_uppercase + string.digits, k=4))
+                args.prefix = base_prefix + '_' + rnd_ident + '_' + str(eval_node)
+                print('Assigning eval prefix', args.prefix)
+            with CustomLogger(not self.config.no_wb, args, self.config) as writer:
+                if eval_node is not None:
+                    self.config.defrost()
+                    hab_sets = orig_hab_set.split(',')
+                    if len(hab_sets) == 0:
+                        hab_sets = []
+                    hab_sets.append("TASK_CONFIG.EVAL_NODE=%i" % eval_node)
+                    self.config.hab_set = ','.join(hab_sets)
+                    self.config.freeze()
+                self._eval_checkpoint(
+                        checkpoint_path,
+                        writer,
+                        checkpoint_index)
 
     def _eval_checkpoint(
         self,
