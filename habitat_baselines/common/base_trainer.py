@@ -188,7 +188,7 @@ class BaseTrainer:
 
         base_prefix = args.prefix
         for eval_node in eval_nodes:
-            if eval_node is not None:
+            if eval_node is not None and base_prefix != 'debug':
                 rnd_ident = ''.join(random.sample(string.ascii_uppercase + string.digits, k=4))
                 args.prefix = base_prefix + '_' + rnd_ident + '_' + str(eval_node)
                 print('Assigning eval prefix', args.prefix)
