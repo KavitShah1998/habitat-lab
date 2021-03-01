@@ -1064,6 +1064,11 @@ class PPOTrainer(BaseRLTrainer):
         if len(use_video_option) > 0 and not os.path.exists(use_video_dir):
             os.makedirs(use_video_dir)
 
+        should_save_replay = False
+        if self.config.NUM_PROCESSES == 1:
+            single_sim = rutils.get_env_attr(self.envs.env.envs[0], 'sim')
+            should_save_replay = single_sim.habitat_config.HABITAT_SIM_V0.get('ENABLE_GFX_REPLAY_SAVE', False)
+
         cur_render = 0
         while (
             len(stats_episodes) < number_of_eval_episodes
@@ -1182,7 +1187,7 @@ class PPOTrainer(BaseRLTrainer):
                             scene_name = ALL_SCENES[infos[i]['scene_name']]
                             fname_metrics['name'] = scene_name
 
-                        generate_video(
+                        video_name = generate_video(
                             video_option=use_video_option,
                             video_dir=use_video_dir,
                             images=rgb_frames[i],
@@ -1199,6 +1204,9 @@ class PPOTrainer(BaseRLTrainer):
                             use_video_option = []
                             self.config.freeze()
                         cur_render += 1
+                        replay_dir = use_video_dir
+                        if should_save_replay:
+                            single_sim._sim.gfx_replay_manager.write_saved_keyframes_to_file(video_name + ".json")
 
             not_done_masks = not_done_masks.to(device=self.device)
             (

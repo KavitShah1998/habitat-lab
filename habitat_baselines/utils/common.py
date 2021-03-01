@@ -269,6 +269,7 @@ def generate_video(
         tb_writer.add_video_from_np_images(
             f"episode{episode_id}", checkpoint_idx, images, fps=fps
         )
+    return video_name
 
 
 def tensor_to_depth_images(tensor: Union[torch.Tensor, List]) -> np.ndarray:
