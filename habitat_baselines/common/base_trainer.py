@@ -27,6 +27,17 @@ from orp.dataset import OrpNavDatasetV0
 from orp.sim.simulator import OrpSim
 from orp.env_aux import *
 
+def get_logger(config, args, flush_secs):
+    import sys
+    sys.path.insert(0, './')
+    from method.orp_log_adapter import CustomLogger
+    if config.write_tb:
+        real_tb_dir = os.path.join(config.TENSORBOARD_DIR, args.prefix)
+        if not os.path.exists(real_tb_dir):
+            os.makedirs(real_tb_dir)
+        return TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
+    else:
+        return CustomLogger(not config.no_wb, args, config)
 
 class BaseTrainer:
     r"""Generic trainer class that serves as a base template for more
@@ -151,7 +162,7 @@ class BaseTrainer:
                 args=args
             )
         else:
-            with CustomLogger(not self.config.no_wb, args, self.config) as writer:
+            with get_logger(self.config, args, self.flush_secs) as writer:
                 # evaluate multiple checkpoints in order
                 prev_ckpt_ind = -1
                 while True:
@@ -192,7 +203,7 @@ class BaseTrainer:
                 rnd_ident = ''.join(random.sample(string.ascii_uppercase + string.digits, k=4))
                 args.prefix = base_prefix + '_' + rnd_ident + '_' + str(eval_node)
                 print('Assigning eval prefix', args.prefix)
-            with CustomLogger(not self.config.no_wb, args, self.config) as writer:
+            with get_logger(self.config, args, self.flush_secs) as writer:
                 if eval_node is not None:
                     self.config.defrost()
                     hab_sets = orig_hab_set.split(',')

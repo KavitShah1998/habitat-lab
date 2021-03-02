@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from habitat import Config, VectorEnv, logger
 from habitat.utils import profiling_wrapper
 from habitat.utils.visualizations.utils import observations_to_image
-from habitat_baselines.common.base_trainer import BaseRLTrainer
+from habitat_baselines.common.base_trainer import BaseRLTrainer, get_logger
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.common.environments import get_env_class
 from habitat_baselines.common.obs_transformers import (
@@ -762,9 +762,6 @@ class PPOTrainer(BaseRLTrainer):
             ]
 
         ppo_cfg = self.config.RL.PPO
-        import sys
-        sys.path.insert(0, './')
-        from method.orp_log_adapter import CustomLogger
 
         _, _, n_tasks = get_distrib_size()
         self.config.defrost()
@@ -772,7 +769,7 @@ class PPOTrainer(BaseRLTrainer):
         self.config.freeze()
 
         with (
-            CustomLogger(not self.config.no_wb, self.args, self.config)
+            get_logger(self.config, self.args, self.flush_secs)
             if rank0_only()
             else contextlib.suppress()
         ) as writer:
