@@ -37,6 +37,10 @@ def get_logger(config, args, flush_secs):
         # Inject the prefix into all of the filepaths
         config.VIDEO_DIR = os.path.join(config.VIDEO_DIR, args.prefix)
         config.CHECKPOINT_FOLDER = os.path.join(config.CHECKPOINT_FOLDER, args.prefix)
+        if not os.path.exists(config.VIDEO_DIR):
+            os.makedirs(config.VIDEO_DIR)
+        if not os.path.exists(config.CHECKPOINT_FOLDER):
+            os.makedirs(config.CHECKPOINT_FOLDER)
         config.freeze()
         if not os.path.exists(real_tb_dir):
             os.makedirs(real_tb_dir)
