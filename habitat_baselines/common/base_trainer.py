@@ -31,7 +31,9 @@ def get_logger(config, args, flush_secs):
     import sys
     sys.path.insert(0, './')
     from method.orp_log_adapter import CustomLogger
+
     if config.write_tb:
+
         real_tb_dir = os.path.join(config.TENSORBOARD_DIR, args.prefix)
         config.defrost()
         # Inject the prefix into all of the filepaths
@@ -41,9 +43,18 @@ def get_logger(config, args, flush_secs):
             os.makedirs(config.VIDEO_DIR)
         if not os.path.exists(config.CHECKPOINT_FOLDER):
             os.makedirs(config.CHECKPOINT_FOLDER)
+
         config.freeze()
         if not os.path.exists(real_tb_dir):
             os.makedirs(real_tb_dir)
+
+        out_cfg_path = os.path.join(config.CHECKPOINT_FOLDER, 'cfg.txt')
+        print('out path is ', out_cfg_path)
+        with open(out_cfg_path, 'w') as f:
+            f.write(str(config))
+            f.write('\n')
+            f.write(str(args))
+
         return TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
     else:
         return CustomLogger(not config.no_wb, args, config)
