@@ -200,6 +200,7 @@ class BaseTrainer:
                         checkpoint_index=prev_ckpt_ind,
                     )
 
+    # pylint: disable=access-member-before-definition
     def _eval_checkpoint_nodes(self, checkpoint_path, checkpoint_index, args):
         from method.orp_log_adapter import CustomLogger
         import random
@@ -216,13 +217,20 @@ class BaseTrainer:
             eval_nodes = [None]
 
         orig_hab_set = self.config.hab_set
+        orig_config = self.config.clone()
+
+
+        # Compute before the main loop so no random seed affects this.
+        rnd = random.Random(None)
+        rnd_ident = ''.join(rnd.sample(string.ascii_uppercase + string.digits, k=4))
 
         base_prefix = args.prefix
         for eval_node in eval_nodes:
             if eval_node is not None and base_prefix != 'debug':
-                rnd_ident = ''.join(random.sample(string.ascii_uppercase + string.digits, k=4))
                 args.prefix = base_prefix + '_' + rnd_ident + '_' + str(eval_node)
                 print('Assigning eval prefix', args.prefix)
+            config_copy = orig_config.clone()
+            self.config = config_copy
             with get_logger(self.config, args, self.flush_secs) as writer:
                 if eval_node is not None:
                     self.config.defrost()

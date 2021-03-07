@@ -129,7 +129,7 @@ def images_to_video(
         quality=quality,
         **kwargs,
     )
-    #logger.info(f"Video created: {os.path.join(output_dir, video_name)}")
+    logger.info(f"Video created: {os.path.join(output_dir, video_name)}")
     for im in images:
         writer.append_data(im)
     writer.close()

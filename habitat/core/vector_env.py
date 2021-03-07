@@ -293,7 +293,7 @@ class VectorEnv:
         finally:
             if child_pipe is not None:
                 child_pipe.close()
-            env.close()
+            env.close(destroy=True)
 
     def _spawn_workers(
         self,

@@ -1146,6 +1146,7 @@ class PPOTrainer(BaseRLTrainer):
                 if not not_done_masks[i].item():
                     pbar.update()
                     episode_stats = dict()
+                    fsm_dat = {}
                     if hasattr(self.actor_critic, 'mod_policy'):
                         # Stats from the modular policy such as failed modules.
                         fsm_dat = self.actor_critic.mod_policy.get_skill_data()
@@ -1159,7 +1160,7 @@ class PPOTrainer(BaseRLTrainer):
                     episode_stats.update(
                         extracted
                     )
-                    for k in extracted:
+                    for k in {**extracted, **fsm_dat}:
                         stats_counts[k] += 1
                     current_episode_reward[i] = 0
                     # use scene_id + episode_id as unique id for storing stats
@@ -1227,16 +1228,26 @@ class PPOTrainer(BaseRLTrainer):
 
         num_episodes = len(stats_episodes)
         aggregated_stats = dict()
+        should_save_std = isinstance(self.agent.actor_critic, HabPolicy)
         for stat_key in next(iter(stats_episodes.values())).keys():
             if stat_key in ['reward', 'count']:
                 use_count = num_episodes
             else:
+                if stat_key not in stats_counts:
+                    raise ValueError(f"{stat_key} not present in count dict")
                 use_count = stats_counts[stat_key]
 
             aggregated_stats[stat_key] = (
                 sum([v[stat_key] for v in stats_episodes.values() if stat_key in v])
-                / num_episodes
+                / use_count
             )
+
+            if should_save_std:
+                if 'profile' in stat_key:
+                    continue
+                mean_squared = aggregated_stats[stat_key]**2
+                squared_mean = sum([v[stat_key]**2 for v in stats_episodes.values() if stat_key in v]) / use_count
+                aggregated_stats[stat_key + '_std'] = np.sqrt(squared_mean - mean_squared)
 
         for k, v in aggregated_stats.items():
             logger.info(f"Average episode {k}: {v:.4f}")
@@ -1252,5 +1263,9 @@ class PPOTrainer(BaseRLTrainer):
             writer.add_scalars("eval_metrics", metrics, step_id)
 
         self.envs.close()
+        if 'HabFormatWrapper' in str(type(self.envs)):
+            sim = rutils.get_env_attr(self.envs.env.envs[0], '_sim')
+            sim.close(destroy=True)
+            del sim
         del self.envs
 
