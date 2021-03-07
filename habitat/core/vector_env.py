@@ -63,6 +63,20 @@ NUMBER_OF_EPISODE_NAME = "number_of_episodes"
 ACTION_SPACE_NAME = "action_space"
 OBSERVATION_SPACE_NAME = "observation_space"
 
+def get_env_attr(env, attr_name, max_calls=10):
+    try:
+        return getattr(env, attr_name)
+    except Exception as e:
+        if max_calls == 0:
+            raise e
+        if hasattr(env, 'env'):
+            return get_env_attr(env.env, attr_name, max_calls-1)
+        elif hasattr(env, '_env'):
+            return get_env_attr(env._env, attr_name, max_calls-1)
+        else:
+            raise ValueError(f"Could not find property {attr_name} of {env}")
+
+
 
 def _make_env_fn(
     config: Config, dataset: Optional[habitat.Dataset] = None, rank: int = 0
@@ -293,7 +307,10 @@ class VectorEnv:
         finally:
             if child_pipe is not None:
                 child_pipe.close()
-            env.close(destroy=True)
+            env.close()
+            sim = get_env_attr(env, '_sim')
+            sim.close(destroy=True)
+            del sim
 
     def _spawn_workers(
         self,
