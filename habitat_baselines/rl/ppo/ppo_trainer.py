@@ -1266,6 +1266,5 @@ class PPOTrainer(BaseRLTrainer):
         if 'HabFormatWrapper' in str(type(self.envs)):
             sim = rutils.get_env_attr(self.envs.env.envs[0], '_sim')
             sim.close(destroy=True)
-            del sim
         del self.envs
 
