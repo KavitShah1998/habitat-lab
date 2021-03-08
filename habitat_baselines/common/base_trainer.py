@@ -191,8 +191,13 @@ class BaseTrainer:
                         current_ckpt = poll_checkpoint_folder(
                             self.config.EVAL_CKPT_PATH_DIR, prev_ckpt_ind
                         )
+                        if current_ckpt is not None and current_ckpt.endswith('.txt'):
+                            prev_ckpt_ind += 1
+                            current_ckpt = None
                         time.sleep(2)  # sleep for 2 secs before polling again
+
                     logger.info(f"=======current_ckpt: {current_ckpt}=======")
+
                     prev_ckpt_ind += 1
                     self._eval_checkpoint(
                         checkpoint_path=current_ckpt,

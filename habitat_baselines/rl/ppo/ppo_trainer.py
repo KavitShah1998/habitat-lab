@@ -196,17 +196,17 @@ class PPOTrainer(BaseRLTrainer):
             config = self.config
 
         if not self.is_simple_env():
-            policy = baseline_registry.get_policy(self.config.RL.POLICY.name)
+            policy = baseline_registry.get_policy(config.RL.POLICY.name)
             if issubclass(policy, HabPolicy):
-                policy = policy(self.config)
+                policy = policy(config)
             else:
                 policy = None
-            self.envs, args = get_hab_envs(self.config, './config.yaml',
+            self.envs, args = get_hab_envs(config, './config.yaml',
                     is_eval,
                     spec_gpu=self.config.TORCH_GPU_ID,
                     setup_policy=policy)
         else:
-            args = get_hab_args(self.config, './config.yaml', spec_gpu=self.config.TORCH_GPU_ID)
+            args = get_hab_args(config, './config.yaml', spec_gpu=self.config.TORCH_GPU_ID)
             self.envs = construct_envs(
                     config,
                     get_env_class(self.config.ENV_NAME),
