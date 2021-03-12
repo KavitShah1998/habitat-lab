@@ -867,11 +867,24 @@ class PPOTrainer(BaseRLTrainer):
 
                 # checkpoint model
                 if rank0_only() and self.should_checkpoint():
+                    requeue_stats = dict(
+                        env_time=self.env_time,
+                        pth_time=self.pth_time,
+                        count_checkpoints=count_checkpoints,
+                        num_steps_done=self.num_steps_done,
+                        num_updates_done=self.num_updates_done,
+                        _last_checkpoint_percent=self._last_checkpoint_percent,
+                        prev_time=(time.time() - self.t_start) + prev_time,
+                    )
+
                     self.save_checkpoint(
                         f"ckpt.{count_checkpoints}.pth",
                         dict(
                             step=self.num_steps_done,
                             wall_time=(time.time() - self.t_start) + prev_time,
+                            optim_state=self.agent.optimizer.state_dict(),
+                            lr_sched_state=lr_scheduler.state_dict(),
+                            requeue_stats=requeue_stats,
                         ),
                     )
                     count_checkpoints += 1
