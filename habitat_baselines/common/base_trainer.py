@@ -26,6 +26,7 @@ sys.path.insert(0, './')
 from orp.dataset import OrpNavDatasetV0
 from orp.sim.simulator import OrpSim
 from orp.env_aux import *
+from orp.controllers.base_ctrls import *
 
 def get_logger(config, args, flush_secs):
     import sys
@@ -164,7 +165,7 @@ class BaseTrainer:
         if self.config.EVAL.EMPTY:
             self._eval_checkpoint_nodes(
                 self.config.EVAL_CKPT_PATH_DIR,
-                checkpoint_index=0,
+                checkpoint_index=1,
                 args=args
             )
         elif os.path.isfile(self.config.EVAL_CKPT_PATH_DIR):
@@ -175,7 +176,7 @@ class BaseTrainer:
             if proposed_index is not None:
                 ckpt_idx = proposed_index
             else:
-                ckpt_idx = 0
+                ckpt_idx = 1
             self._eval_checkpoint_nodes(
                 self.config.EVAL_CKPT_PATH_DIR,
                 checkpoint_index=ckpt_idx,

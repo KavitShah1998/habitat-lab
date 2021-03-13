@@ -64,10 +64,10 @@ def construct_envs(
                 "No scenes to load, multiple process logic relies on being able to split scenes uniquely between processes"
             )
 
-        if len(scenes) < num_processes:
+        if len(scenes) < num_environments:
             # Hack to train with just one scene
             assert len(scenes) == 1
-            scenes = [scenes[0] for _ in range(num_processes)]
+            scenes = [scenes[0] for _ in range(num_environments)]
             #raise RuntimeError(
             #    "reduce the number of processes as there "
             #    "aren't enough number of scenes"
@@ -99,7 +99,7 @@ def construct_envs(
         proc_config.freeze()
         configs.append(proc_config)
 
-    if config.IS_DEBUG_MODE:
+    if config.IS_DEBUG_MODE or num_environments == 1:
         envs = habitat.ThreadedVectorEnv(
             make_env_fn=make_env_fn,
             env_fn_args=tuple(zip(configs, env_classes)),
