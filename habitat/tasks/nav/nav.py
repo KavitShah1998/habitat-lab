@@ -1028,10 +1028,7 @@ class StopAction(SimulatorTaskAction):
         ``step``.
         """
         task.is_stop_called = True  # type: ignore
-        return self._sim.step(HabitatSimActions.STOP)
-        #return self._sim.get_observations_at()  # type: ignore
-        #prev_sim_obs = self._sim.get_sensor_observations()
-        #return self._sim._sensor_suite.get_observations(prev_sim_obs)
+        return self._sim.get_observations_at()  # type: ignore
 
 
 @registry.register_task_action
