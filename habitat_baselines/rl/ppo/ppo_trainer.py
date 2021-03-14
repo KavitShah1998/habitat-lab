@@ -1250,17 +1250,19 @@ class PPOTrainer(BaseRLTrainer):
                     raise ValueError(f"{stat_key} not present in count dict")
                 use_count = stats_counts[stat_key]
 
-            aggregated_stats[stat_key] = (
-                sum([v[stat_key] for v in stats_episodes.values() if stat_key in v])
-                / use_count
-            )
+            values = np.array([v[stat_key]
+                for v in stats_episodes.values()
+                if stat_key in v])
+            mean_val = sum(values) / use_count
+            aggregated_stats[stat_key] = mean_val
 
-            if should_save_std:
+            if self.config.EVAL_SAVE_STD:
+                if self.config.hab_multi_scene:
+                    raise ValueError('Cannot compute STD with multi-scene breakdown')
                 if 'profile' in stat_key:
                     continue
-                mean_squared = aggregated_stats[stat_key]**2
-                squared_mean = sum([v[stat_key]**2 for v in stats_episodes.values() if stat_key in v]) / use_count
-                aggregated_stats[stat_key + '_std'] = np.sqrt(squared_mean - mean_squared)
+                std = np.sqrt(np.mean(np.abs(values - mean_val)**2))
+                aggregated_stats[stat_key + '_std'] = std
 
         for k, v in aggregated_stats.items():
             logger.info(f"Average episode {k}: {v:.4f}")
