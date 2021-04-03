@@ -1024,8 +1024,13 @@ class PPOTrainer(BaseRLTrainer):
             ac_shape = 1
             ac_dtype = torch.float32
         else:
-            ac_shape = self.envs.action_spaces[0].shape[0]
-            ac_dtype = torch.long
+            if hasattr(self.envs.action_spaces[0], 'spaces'):
+                ac_shape = len(self.envs.action_spaces[0].spaces)
+                ac_dtype = torch.long
+            else:
+                ac_shape = self.envs.action_spaces[0].shape[0]
+                ac_dtype = torch.float32
+
         prev_actions = torch.zeros(
             self.config.NUM_ENVIRONMENTS,
             ac_shape,
