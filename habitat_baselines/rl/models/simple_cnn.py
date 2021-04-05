@@ -29,6 +29,8 @@ class SimpleCNN(nn.Module):
             self._n_input_rgb = 0
             self._n_input_depth = 0
             return
+        self.use_rgb_keys = []
+        self.use_depth_keys = []
 
         rgb_shape = None
         self._n_input_rgb = 0
@@ -36,12 +38,14 @@ class SimpleCNN(nn.Module):
             if k in observation_space.spaces:
                 self._n_input_rgb += 3
                 rgb_shape = observation_space.spaces[k].shape[:2]
+                self.use_rgb_keys.append(k)
         depth_shape = None
         self._n_input_depth = 0
         for k in DEPTH_KEYS:
             if k in observation_space.spaces:
                 self._n_input_depth += 1
                 depth_shape = observation_space.spaces[k].shape[:2]
+                self.use_depth_keys.append(k)
 
         # kernel size for different CNN layers
         self._cnn_layers_kernel_size = [(8, 8), (4, 4), (3, 3)]
@@ -145,7 +149,7 @@ class SimpleCNN(nn.Module):
 
     def forward(self, observations: Dict[str, torch.Tensor]):
         cnn_input = []
-        for k in RGB_KEYS:
+        for k in self.use_rgb_keys:
             if k in observations:
                 rgb_observations = observations[k]
                 # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
@@ -154,7 +158,7 @@ class SimpleCNN(nn.Module):
                     rgb_observations.float() / 255.0
                 )  # normalize RGB
                 cnn_input.append(rgb_observations)
-        for k in DEPTH_KEYS:
+        for k in self.use_depth_keys:
             if k in observations:
                 depth_observations = observations[k]
                 # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]

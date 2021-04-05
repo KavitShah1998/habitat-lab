@@ -134,6 +134,12 @@ class PPOTrainer(BaseRLTrainer):
         observation_space = apply_obs_transforms_obs_space(
             observation_space, self.obs_transforms
         )
+        keep_keys = {}
+
+        ignore_keys = ppo_cfg.ignore_obs.split(',')
+        observation_space = spaces.Dict({k: v for k,v in observation_space.spaces.items()
+            if k not in ignore_keys})
+
         self.actor_critic = policy.from_config(
             self.config, observation_space, self.envs.action_spaces[0]
         )
