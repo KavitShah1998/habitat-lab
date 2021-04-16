@@ -165,6 +165,7 @@ def save_resume_state(state: Any, filename_or_config: Union[Config, str]):
         filename = resume_state_filename(filename_or_config)
     else:
         filename = filename_or_config
+    print('Saving resume state to ', filename)
 
     torch.save(state, filename)
 
@@ -178,8 +179,17 @@ def load_resume_state(filename_or_config: Union[Config, str]) -> Optional[Any]:
     """
     if isinstance(filename_or_config, Config):
         filename = resume_state_filename(filename_or_config)
+        cfg = filename_or_config
+        found_f = None
+        for f in os.listdir(cfg.CHECKPOINT_FOLDER):
+            if cfg.PREFIX in f:
+                found_f = f
+        if found_f is not None:
+            filename = osp.join(cfg.CHECKPOINT_FOLDER, found_f,
+                    RESUME_STATE_BASE_NAME + ".pth")
     else:
         filename = filename_or_config
+    print('Trying to resume state from', filename)
 
     if not osp.exists(filename):
         return None

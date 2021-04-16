@@ -423,6 +423,7 @@ class PPOTrainer(BaseRLTrainer):
 
         return results
 
+    @profiling_wrapper.RangeContext("compute_and_step")
     def _compute_actions_and_step_envs(self, buffer_index: int = 0):
         num_envs = self.envs.num_envs
         env_slice = slice(
@@ -483,6 +484,7 @@ class PPOTrainer(BaseRLTrainer):
             buffer_index=buffer_index,
         )
 
+    @profiling_wrapper.RangeContext("_collect_environment_result")
     def _collect_environment_result(self, buffer_index: int = 0):
         num_envs = self.envs.num_envs
         env_slice = slice(
@@ -507,54 +509,54 @@ class PPOTrainer(BaseRLTrainer):
             observations, device=self.device, cache=self._obs_batching_cache
         )
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-
-        rewards = torch.tensor(
-            rewards_l,
-            dtype=torch.float,
-            device=self.current_episode_reward.device,
-        )
-        rewards = rewards.unsqueeze(1)
-
-        not_done_masks = torch.tensor(
-            [[not done] for done in dones],
-            dtype=torch.bool,
-            device=self.current_episode_reward.device,
-        )
-        done_masks = torch.logical_not(not_done_masks)
-
-        self.current_episode_reward[env_slice] += rewards
-        current_ep_reward = self.current_episode_reward[env_slice]
-        self.running_episode_stats["reward"][env_slice] += current_ep_reward.where(done_masks, current_ep_reward.new_zeros(()))  # type: ignore
-        self.running_episode_stats["count"][env_slice] += done_masks.float()  # type: ignore
-        for k, v_k in self._extract_scalars_from_infos(infos).items():
-            v = torch.tensor(
-                v_k,
+        with profiling_wrapper.RangeContext('collect_env_to_tensors'):
+            rewards = torch.tensor(
+                rewards_l,
                 dtype=torch.float,
                 device=self.current_episode_reward.device,
-            ).unsqueeze(1)
-            if k not in self.running_episode_stats:
-                self.running_episode_stats[k] = torch.zeros_like(
-                    self.running_episode_stats["count"]
-                )
+            )
+            rewards = rewards.unsqueeze(1)
 
-            self.running_episode_stats[k][env_slice] += v.where(done_masks, v.new_zeros(()))  # type: ignore
+            not_done_masks = torch.tensor(
+                [[not done] for done in dones],
+                dtype=torch.bool,
+                device=self.current_episode_reward.device,
+            )
+            done_masks = torch.logical_not(not_done_masks)
 
-        self.current_episode_reward[env_slice].masked_fill_(done_masks, 0.0)
+            self.current_episode_reward[env_slice] += rewards
+            current_ep_reward = self.current_episode_reward[env_slice]
+            self.running_episode_stats["reward"][env_slice] += current_ep_reward.where(done_masks, current_ep_reward.new_zeros(()))  # type: ignore
+            self.running_episode_stats["count"][env_slice] += done_masks.float()  # type: ignore
+            for k, v_k in self._extract_scalars_from_infos(infos).items():
+                v = torch.tensor(
+                    v_k,
+                    dtype=torch.float,
+                    device=self.current_episode_reward.device,
+                ).unsqueeze(1)
+                if k not in self.running_episode_stats:
+                    self.running_episode_stats[k] = torch.zeros_like(
+                        self.running_episode_stats["count"]
+                    )
 
-        if self._static_encoder:
-            with torch.no_grad():
-                batch["visual_features"] = self._encoder(batch)
+                self.running_episode_stats[k][env_slice] += v.where(done_masks, v.new_zeros(()))  # type: ignore
 
-        self.rollouts.insert(
-            next_observations=batch,
-            rewards=rewards,
-            next_masks=not_done_masks,
-            buffer_index=buffer_index,
-        )
+            self.current_episode_reward[env_slice].masked_fill_(done_masks, 0.0)
 
-        self.rollouts.advance_rollout(buffer_index)
+            if self._static_encoder:
+                with torch.no_grad():
+                    batch["visual_features"] = self._encoder(batch)
 
-        self.pth_time += time.time() - t_update_stats
+            self.rollouts.insert(
+                next_observations=batch,
+                rewards=rewards,
+                next_masks=not_done_masks,
+                buffer_index=buffer_index,
+            )
+
+            self.rollouts.advance_rollout(buffer_index)
+
+            self.pth_time += time.time() - t_update_stats
 
         return env_slice.stop - env_slice.start
 
@@ -793,6 +795,7 @@ class PPOTrainer(BaseRLTrainer):
                     )
 
                 if rank0_only() and self._should_save_resume_state():
+                    print('Saving habitat resume state')
                     requeue_stats = dict(
                         env_time=self.env_time,
                         pth_time=self.pth_time,

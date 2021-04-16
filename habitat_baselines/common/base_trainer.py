@@ -140,7 +140,6 @@ class BaseTrainer:
 
         if self.config.EVAL_CONCUR:
             found_f = None
-            #timeout_seconds = 60 / 2
             # 1 hour
             timeout_seconds = 60*60
             i = 0
