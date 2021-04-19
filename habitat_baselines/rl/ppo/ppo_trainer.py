@@ -75,9 +75,9 @@ class PPOTrainer(BaseRLTrainer):
     agent: PPO
     actor_critic: Policy
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, run_type='train'):
         resume_state = load_resume_state(config)
-        if resume_state is not None:
+        if resume_state is not None and run_type == 'train':
             config = resume_state["config"]
 
         super().__init__(config)
