@@ -24,6 +24,7 @@ from habitat_baselines.utils.common import (
 
 import sys
 sys.path.insert(0, './')
+import numpy as np
 from orp.dataset import OrpNavDatasetV0
 from orp.sim.simulator import OrpSim
 from orp.env_aux import *
@@ -160,8 +161,6 @@ class BaseTrainer:
             self.config.freeze()
             print('Found out folder ', self.config.EVAL_CKPT_PATH_DIR)
 
-
-
         if self.config.EVAL.EMPTY:
             self._eval_checkpoint_nodes(
                 self.config.EVAL_CKPT_PATH_DIR,
@@ -225,7 +224,6 @@ class BaseTrainer:
         orig_hab_set = self.config.hab_set
         orig_config = self.config.clone()
 
-
         # Compute before the main loop so no random seed affects this.
         rnd = random.Random(None)
         rnd_ident = ''.join(rnd.sample(string.ascii_uppercase + string.digits, k=4))
@@ -246,10 +244,54 @@ class BaseTrainer:
                     hab_sets.append("TASK_CONFIG.EVAL_NODE=%i" % eval_node)
                     self.config.hab_set = ','.join(hab_sets)
                     self.config.freeze()
-                self._eval_checkpoint(
-                        checkpoint_path,
-                        writer,
-                        checkpoint_index)
+                if ('rlt_name' in self.config.RL.POLICY
+                        and self.config.RL.POLICY.rlt_name == 'NnHighLevelPolicy'
+                        and os.path.isdir(self.config.pick_nn)):
+                    # Evaluate across all checkpoints in each of the
+                    # directories
+                    self._eval_rlt_multi_checkpoint(checkpoint_path, writer, checkpoint_index)
+                else:
+                    self._eval_checkpoint(
+                            checkpoint_path,
+                            writer,
+                            checkpoint_index)
+
+    def _eval_rlt_multi_checkpoint(self, checkpoint_path, writer, checkpoint_index):
+        all_ckpts_dirs = {
+                'pick_nn': self.config.pick_nn,
+                'place_nn': self.config.place_nn,
+                'open_fridge_nn': self.config.open_fridge_nn,
+                'close_fridge_nn': self.config.close_fridge_nn,
+                'open_cab_nn': self.config.open_cab_nn,
+                'close_cab_nn': self.config.close_cab_nn,
+                'nav_nn': self.config.nav_nn,
+                }
+        all_ckpts = {k: os.listdir(v) for k,v in all_ckpts_dirs.items()}
+
+        # Remove all non checkpoint files
+        all_ckpts = {k: [x for x in v if '.pth' in x and 'resume-state' not in x]
+                for k, v in all_ckpts.items()}
+
+        # Sort checkpoint order
+        all_ckpts = {
+                k: sorted(v,key=lambda x: int(x.split('.')[-2]))
+                for k, v in all_ckpts.items()
+                }
+
+        max_len = max([len(x) for x in all_ckpts.values()])
+        EVAL_COUNT = 100
+        idxs = np.linspace(0, max_len, EVAL_COUNT, dtype=np.int32)
+        for i in idxs:
+            use_ckpts = {}
+            for k, ckpts in all_ckpts.items():
+                use_idx = i if i < len(ckpts) else len(ckpts)-1
+                self.config[k] = os.path.join(all_ckpts_dirs[k],
+                        ckpts[use_idx])
+            self._eval_checkpoint(
+                    checkpoint_path,
+                    writer,
+                    checkpoint_index)
+
 
     def _eval_checkpoint(
         self,

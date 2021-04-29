@@ -1022,6 +1022,13 @@ class PPOTrainer(BaseRLTrainer):
                     self.envs.action_spaces[0], self.args)
             self.agent.actor_critic.set_env_ref(self.envs)
 
+        # For debugging a particular episode index.
+        #while True:
+        #    observations = self.envs.reset()
+        #    if self.envs.current_episodes()[0].episode_id == '10':
+        #        break
+        #print('Found matching environment')
+
         observations = self.envs.reset()
         batch = batch_obs(
             observations, device=self.device, cache=self._obs_batching_cache
@@ -1089,6 +1096,10 @@ class PPOTrainer(BaseRLTrainer):
         step_id = checkpoint_index
         if "extra_state" in ckpt_dict and "step" in ckpt_dict["extra_state"]:
             step_id = ckpt_dict["extra_state"]["step"]
+        if isinstance(self.actor_critic, HabPolicy) and self.config.PREFIX != 'debug':
+            # Not debug because it is annoying when a new folder is
+            # created every time for the videos while debugging.
+            step_id = self.actor_critic.mod_policy.get_total_num_training_steps()
 
         pbar = tqdm.tqdm(total=number_of_eval_episodes)
         self.actor_critic.eval()

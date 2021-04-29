@@ -133,6 +133,7 @@ class PointNavBaselinePolicy(Policy):
             observation_space=observation_space,
             action_space=action_space,
             hidden_size=config.RL.PPO.hidden_size,
+            goal_hidden_size=config.RL.PPO.goal_hidden_size,
             fuse_states=config.RL.POLICY.fuse_states,
             force_blind=config.RL.POLICY.force_blind
         )
@@ -168,6 +169,7 @@ class PointNavBaselineNet(Net):
         self,
         observation_space: spaces.Dict,
         hidden_size: int,
+        goal_hidden_size,
         fuse_states,
         force_blind
     ):
@@ -202,12 +204,21 @@ class PointNavBaselineNet(Net):
                     self.fuse_states])
 
         self._hidden_size = hidden_size
+        self._goal_hidden_size = goal_hidden_size
 
         self.visual_encoder = SimpleCNN(observation_space, hidden_size,
                 force_blind)
+        state_dim = self._n_input_goal
+        if self._goal_hidden_size != 0:
+            self.goal_encoder = nn.Sequential(
+                    nn.Linear(self._n_input_goal, self._goal_hidden_size),
+                    nn.ReLU(),
+                    nn.Linear(self._goal_hidden_size, self._goal_hidden_size),
+                    nn.ReLU())
+            state_dim = self._goal_hidden_size
 
         self.state_encoder = build_rnn_state_encoder(
-            (0 if self.is_blind else self._hidden_size) + self._n_input_goal,
+            (0 if self.is_blind else self._hidden_size) + state_dim,
             self._hidden_size,
         )
 
@@ -249,9 +260,15 @@ class PointNavBaselineNet(Net):
         else:
             x = [target_encoding]
 
+        if self._goal_hidden_size != 0:
+            x = self.goal_encoder(torch.cat(x, dim=1))
+
         if not self.is_blind:
             perception_embed = self.visual_encoder(observations)
-            x = [perception_embed] + x
+            if self._goal_hidden_size == 0:
+                x = [perception_embed] + x
+            else:
+                x = [perception_embed, x]
 
         x_out = torch.cat(x, dim=1)
         x_out, rnn_hidden_states = self.state_encoder(
