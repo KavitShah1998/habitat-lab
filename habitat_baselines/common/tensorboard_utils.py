@@ -8,7 +8,11 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except:
+    pass
+
 
 
 class TensorboardWriter:

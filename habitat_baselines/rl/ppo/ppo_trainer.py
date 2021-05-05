@@ -1023,9 +1023,11 @@ class PPOTrainer(BaseRLTrainer):
             self.agent.actor_critic.set_env_ref(self.envs)
 
         # For debugging a particular episode index.
+        #print('Searching for particular episode')
         #while True:
         #    observations = self.envs.reset()
-        #    if self.envs.current_episodes()[0].episode_id == '10':
+        #    print('Episode', self.envs.current_episodes()[0].episode_id)
+        #    if self.envs.current_episodes()[0].episode_id == '17':
         #        break
         #print('Found matching environment')
 
