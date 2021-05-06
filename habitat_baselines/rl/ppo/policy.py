@@ -129,11 +129,12 @@ class PointNavBaselinePolicy(Policy):
     def from_config(
         cls, config: Config, observation_space: spaces.Dict, action_space
     ):
+        goal_hidden_size = goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0)
         return cls(
             observation_space=observation_space,
             action_space=action_space,
             hidden_size=config.RL.PPO.hidden_size,
-            goal_hidden_size=config.RL.PPO.goal_hidden_size,
+            goal_hidden_size=goal_hidden_size,
             fuse_states=config.RL.POLICY.fuse_states,
             force_blind=config.RL.POLICY.force_blind
         )
