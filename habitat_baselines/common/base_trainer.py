@@ -29,6 +29,7 @@ from orp.dataset import OrpNavDatasetV0
 from orp.sim.simulator import OrpSim
 from orp.env_aux import *
 from orp.controllers.base_ctrls import *
+import subprocess
 
 def get_logger(config, args, flush_secs):
     import sys
@@ -51,16 +52,23 @@ def get_logger(config, args, flush_secs):
         if not os.path.exists(real_tb_dir):
             os.makedirs(real_tb_dir)
 
-        out_cfg_path = os.path.join(config.CHECKPOINT_FOLDER, 'cfg.txt')
-        print('out path is ', out_cfg_path)
-        with open(out_cfg_path, 'w') as f:
-            f.write(str(config))
-            f.write('\n')
-            f.write(str(args))
 
-        return TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
+        ret = TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
     else:
-        return CustomLogger(not config.no_wb, args, config)
+        ret = CustomLogger(not config.no_wb, args, config)
+    out_cfg_path = os.path.join(config.CHECKPOINT_FOLDER, 'cfg.txt')
+    print('out path is ', out_cfg_path)
+    with open(out_cfg_path, 'w') as f:
+        f.write(str(config))
+        f.write('\n')
+        f.write(str(args))
+        try:
+            out = subprocess.check_output(['git', '-C', '../habitat-sim/.git', 'rev-parse', 'HEAD'])
+            print(f"Using HabSim version {out}")
+            f.write("hab sim version "+str(out)+"\n")
+        except:
+            print("Could not find HabSim version")
+    return ret
 
 class BaseTrainer:
     r"""Generic trainer class that serves as a base template for more

@@ -1228,7 +1228,9 @@ class PPOTrainer(BaseRLTrainer):
                                 k: v
                                 for k, v in self._extract_scalars_from_info(infos[i]).items()
                                 if k in ['ep_success', 'ep_constraint_violate',
-                                    'spl', 'ep_accum_force_end', 'node_idx']
+                                    'spl', 'ep_accum_force_end', 'node_idx',
+                                    # MP failure highest-level bins
+                                    'plan_failure', 'plan_guess', 'execute_failure']
                                 }
                         fname_metrics['reward'] = episode_stats['reward']
                         if 'scene_name' in infos[i]:
