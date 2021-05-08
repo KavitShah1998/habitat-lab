@@ -158,12 +158,16 @@ class PPOTrainer(BaseRLTrainer):
             )
 
         if self.config.RL.DDPPO.pretrained:
-            self.actor_critic.load_state_dict(
-                {
+            # To clear the actor head for continued training with the
+            # stop action.
+            model_dict = self.actor_critic.state_dict()
+            tmp_load_d = {
                     k[len("actor_critic.") :]: v
                     for k, v in pretrained_state["state_dict"].items()
+                    if 'action_distribution' not in k
                 }
-            )
+            model_dict.update(tmp_load_d)
+            self.actor_critic.load_state_dict(model_dict)
         elif self.config.RL.DDPPO.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
             self.actor_critic.net.visual_encoder.load_state_dict(
