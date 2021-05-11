@@ -1026,14 +1026,15 @@ class PPOTrainer(BaseRLTrainer):
                     self.envs.action_spaces[0], self.args)
             self.agent.actor_critic.set_env_ref(self.envs)
 
-        # For debugging a particular episode index.
+        ## For debugging a particular episode index.
         #print('Searching for particular episode')
         #while True:
         #    observations = self.envs.reset()
         #    print('Episode', self.envs.current_episodes()[0].episode_id)
-        #    if self.envs.current_episodes()[0].episode_id == '17':
+        #    if self.envs.current_episodes()[0].episode_id == '22':
         #        break
         #print('Found matching environment')
+        ## IF USING THE ABOVE, COMMENT OUT THE BELOW.
 
         observations = self.envs.reset()
         batch = batch_obs(
@@ -1226,15 +1227,22 @@ class PPOTrainer(BaseRLTrainer):
                     ] = episode_stats
 
                     if len(use_video_option) > 0:
-                        # only the important metrics can make it in the video
+                        name_conversion = {
+                                'ep_success': 'succ',
+                                'ep_constraint_violate': 'const_violate',
+                                'spl': 'spl',
+                                'ep_accum_force_end': 'force_end',
+                                'node_idx': 'node',
+                                # MP failure highest-level bins
+                                'plan_failure': 'plan_fail',
+                                'plan_guess': 'plan_guess',
+                                'execute_failure': 'ex_fail'
+                                }
                         # filename
                         fname_metrics = {
-                                k: v
-                                for k, v in self._extract_scalars_from_info(infos[i]).items()
-                                if k in ['ep_success', 'ep_constraint_violate',
-                                    'spl', 'ep_accum_force_end', 'node_idx',
-                                    # MP failure highest-level bins
-                                    'plan_failure', 'plan_guess', 'execute_failure']
+                                name_conversion[k]: v
+                                for k, v in episode_stats.items()
+                                if k in list(name_conversion.keys())
                                 }
                         fname_metrics['reward'] = episode_stats['reward']
                         if 'scene_name' in infos[i]:
