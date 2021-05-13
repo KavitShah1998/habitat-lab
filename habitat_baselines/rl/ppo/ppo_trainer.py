@@ -1011,6 +1011,10 @@ class PPOTrainer(BaseRLTrainer):
             config.TASK_CONFIG.TASK.MEASUREMENTS.append("COLLISIONS")
             config.freeze()
 
+        if self.config.VIDEO_MAX_RENDER == 0:
+            # A way to keep the high res camera but not save any videos
+            use_video_option = []
+
         if config.VERBOSE:
             logger.info(f"env config: {config}")
 
@@ -1028,11 +1032,12 @@ class PPOTrainer(BaseRLTrainer):
 
         ## For debugging a particular episode index.
         #print('Searching for particular episode')
-        #while True:
+        ##while True:
+        #for _ in range(13):
         #    observations = self.envs.reset()
         #    print('Episode', self.envs.current_episodes()[0].episode_id)
-        #    if self.envs.current_episodes()[0].episode_id == '22':
-        #        break
+        #    #if self.envs.current_episodes()[0].episode_id == '22':
+        #    #    break
         #print('Found matching environment')
         ## IF USING THE ABOVE, COMMENT OUT THE BELOW.
 
@@ -1257,6 +1262,7 @@ class PPOTrainer(BaseRLTrainer):
                             checkpoint_idx=checkpoint_index,
                             metrics=fname_metrics,
                             tb_writer=writer,
+                            fps=self.config.VIDEO_FPS
                         )
 
                         rgb_frames[i] = []
