@@ -29,6 +29,7 @@ from orp.dataset import OrpNavDatasetV0
 from orp.sim.simulator import OrpSim
 from orp.env_aux import *
 from orp.controllers.base_ctrls import *
+import math
 import subprocess
 
 def get_logger(config, args, flush_secs):
@@ -37,7 +38,6 @@ def get_logger(config, args, flush_secs):
     from method.orp_log_adapter import CustomLogger
 
     if config.write_tb:
-
         real_tb_dir = os.path.join(config.TENSORBOARD_DIR, args.prefix)
         config.defrost()
         # Inject the prefix into all of the filepaths
@@ -287,12 +287,11 @@ class BaseTrainer:
                 }
 
         max_len = max([len(x) for x in all_ckpts.values()])
-        EVAL_COUNT = 100
-        idxs = np.linspace(0, max_len, EVAL_COUNT, dtype=np.int32)
-        for i in idxs:
-            use_ckpts = {}
+        EVAL_COUNT = 11
+        fracs = [i / (EVAL_COUNT-1) for i in range(EVAL_COUNT)]
+        for frac in fracs:
             for k, ckpts in all_ckpts.items():
-                use_idx = i if i < len(ckpts) else len(ckpts)-1
+                use_idx = math.ceil(len(ckpts) * frac)
                 self.config[k] = os.path.join(all_ckpts_dirs[k],
                         ckpts[use_idx])
             self._eval_checkpoint(
