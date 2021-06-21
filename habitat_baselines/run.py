@@ -14,6 +14,7 @@ from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.config.default import get_config
 
+#import pydevd_pycharm; pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
 
 def main():
     parser = argparse.ArgumentParser()

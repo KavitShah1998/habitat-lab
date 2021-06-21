@@ -55,7 +55,8 @@ def get_logger(config, args, flush_secs):
 
         ret = TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
     else:
-        ret = CustomLogger(not config.no_wb, args, config)
+        # ret = CustomLogger(not config.no_wb, args, config)
+        ret = CustomLogger(config.no_wb, args, config)
     out_cfg_path = os.path.join(config.CHECKPOINT_FOLDER, 'cfg.txt')
     print('out path is ', out_cfg_path)
     with open(out_cfg_path, 'w') as f:

@@ -711,16 +711,16 @@ class PPOTrainer(BaseRLTrainer):
             self.env_time = 0
 
 
-            #logger.info(
-            #    "Average window size: {}  {}".format(
-            #        len(self.window_episode_stats["count"]),
-            #        "  ".join(
-            #            "{}: {:.3f}".format(k, v / deltas["count"])
-            #            for k, v in deltas.items()
-            #            if k != "count"
-            #        ),
-            #    )
-            #)
+            logger.info(
+               "Average window size: {}  {}".format(
+                   len(self.window_episode_stats["count"]),
+                   "  ".join(
+                       "{}: {:.3f}".format(k, v / deltas["count"])
+                       for k, v in deltas.items()
+                       if k != "count"
+                   ),
+               )
+            )
 
     def should_end_early(self, rollout_step) -> bool:
         if not self._is_distributed:
@@ -994,7 +994,7 @@ class PPOTrainer(BaseRLTrainer):
         ppo_cfg = config.RL.PPO
 
         use_video_option = self.config.VIDEO_OPTION[:]
-        if (checkpoint_index+1) % config.CHECKPOINT_RENDER_INTERVAL != 0:
+        if False and (checkpoint_index+1) % config.CHECKPOINT_RENDER_INTERVAL != 0:
             use_video_option = []
             config.defrost()
             config.hab_high_render = False
@@ -1230,7 +1230,6 @@ class PPOTrainer(BaseRLTrainer):
                             current_episodes[i].episode_id,
                         )
                     ] = episode_stats
-
                     if len(use_video_option) > 0:
                         name_conversion = {
                                 'ep_success': 'succ',
