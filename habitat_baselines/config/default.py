@@ -19,7 +19,6 @@ CONFIG_FILE_SEPARATOR = ","
 # -----------------------------------------------------------------------------
 _C = CN()
 # task config can be a list of conifgs like "A.yaml,B.yaml"
-_C.SKIP_NAV = False  # NAOKI
 _C.BASE_TASK_CONFIG_PATH = "configs/tasks/pointnav.yaml"
 _C.TASK_CONFIG = CN()  # task_config will be stored as a config node
 _C.CMD_TRAILING_OPTS = []  # store command line options as list of strings
@@ -45,6 +44,7 @@ _C.LOG_INTERVAL = 10
 _C.LOG_FILE = "train.log"
 _C.FORCE_BLIND_POLICY = False
 _C.VERBOSE = True
+_C.JUNK = False
 # For our use case, the CPU side things are mainly memory copies
 # and nothing of substantive compute. PyTorch has been making
 # more and more memory copies parallel, but that just ends up
@@ -65,10 +65,14 @@ _C.EVAL.USE_CKPT_CONFIG = True
 # REINFORCEMENT LEARNING (RL) ENVIRONMENT CONFIG
 # -----------------------------------------------------------------------------
 _C.RL = CN()
+_C.RL.BASE_ANGLE_NOISE = 0.0
 _C.RL.REWARD_MEASURE = "distance_to_goal"
 _C.RL.SUCCESS_MEASURE = "spl"
 _C.RL.SUCCESS_REWARD = 2.5
 _C.RL.SLACK_REWARD = -0.01
+_C.RL.PENALIZE_BACKWARDS = 0.0
+_C.RL.DIST_REWARD = 20.0
+_C.RL.SUCC_REWARD = 10.0
 # -----------------------------------------------------------------------------
 # preemption CONFIG
 # -----------------------------------------------------------------------------

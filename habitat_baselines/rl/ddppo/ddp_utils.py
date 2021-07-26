@@ -181,6 +181,8 @@ def load_resume_state(filename_or_config: Union[Config, str]) -> Optional[Any]:
         filename = resume_state_filename(filename_or_config)
         cfg = filename_or_config
         found_f = None
+        if not osp.isdir(cfg.CHECKPOINT_FOLDER):
+            os.mkdir(cfg.CHECKPOINT_FOLDER)
         for f in os.listdir(cfg.CHECKPOINT_FOLDER):
             if cfg.PREFIX in f:
                 found_f = f

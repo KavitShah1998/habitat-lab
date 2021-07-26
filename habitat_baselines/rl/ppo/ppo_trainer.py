@@ -1144,7 +1144,7 @@ class PPOTrainer(BaseRLTrainer):
                     test_recurrent_hidden_states,
                     prev_actions,
                     not_done_masks,
-                    deterministic=False,
+                    deterministic=True,
                 )
 
                 prev_actions.copy_(actions)
@@ -1263,6 +1263,10 @@ class PPOTrainer(BaseRLTrainer):
                             tb_writer=writer,
                             fps=self.config.VIDEO_FPS
                         )
+
+                        if len(rgb_frames[i]) <= 3:
+                            print('SUPER SHORT!')
+                            # exit()
 
                         rgb_frames[i] = []
                         if self.config.VIDEO_MAX_RENDER > 0 and cur_render > self.config.VIDEO_MAX_RENDER:
