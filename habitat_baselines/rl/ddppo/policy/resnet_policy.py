@@ -12,6 +12,7 @@ import torch
 from gym import spaces
 from torch import nn as nn
 from torch.nn import functional as F
+from torchvision.transforms import RandomCrop, RandomErasing
 
 from habitat.config import Config
 from habitat.tasks.nav.nav import (
@@ -49,6 +50,7 @@ class PointNavResNetPolicy(Policy):
         normalize_visual_inputs: bool = False,
         force_blind_policy: bool = False,
         action_distribution_type: str = "categorical",
+        config: Config = None,
         **kwargs
     ):
         discrete_actions = action_distribution_type == "categorical"
@@ -64,6 +66,7 @@ class PointNavResNetPolicy(Policy):
                 normalize_visual_inputs=normalize_visual_inputs,
                 force_blind_policy=force_blind_policy,
                 discrete_actions=discrete_actions,
+                config=config,
             ),
             dim_actions=action_space.n,  # for action distribution
             action_distribution_type=action_distribution_type,
@@ -84,6 +87,7 @@ class PointNavResNetPolicy(Policy):
             normalize_visual_inputs="rgb" in observation_space.spaces,
             force_blind_policy=config.FORCE_BLIND_POLICY,
             action_distribution_type=config.RL.POLICY.action_distribution_type,
+            config=config,
         )
 
 
@@ -96,8 +100,17 @@ class ResNetEncoder(nn.Module):
         spatial_size: int = 128,
         make_backbone=None,
         normalize_visual_inputs: bool = False,
+        config = None,
     ):
         super().__init__()
+
+        self.random_crop_transform = None
+        self.random_cutout_transform = None
+        if config is not None:
+            if config.RL.RANDOM_CROP[0] != -1:
+                self.random_crop_transform = RandomCrop(config.RL.RANDOM_CROP)
+            if config.RL.get('RANDOM_CUTOUT', False):
+                self.random_cutout_transform = RandomErasing(p=1.0)
 
         if "rgb" in observation_space.spaces:
             self._n_input_rgb = observation_space.spaces["rgb"].shape[2]
@@ -107,7 +120,11 @@ class ResNetEncoder(nn.Module):
 
         if "depth" in observation_space.spaces:
             self._n_input_depth = observation_space.spaces["depth"].shape[2]
-            spatial_size = observation_space.spaces["depth"].shape[0] // 2
+            if config is not None and config.RL.RANDOM_CROP[0] != -1:
+                spatial_size = config.RL.RANDOM_CROP[0] // 2
+            else:
+                spatial_size = observation_space.spaces["depth"].shape[0] // 2
+
         else:
             self._n_input_depth = 0
 
@@ -183,6 +200,10 @@ class ResNetEncoder(nn.Module):
             cnn_input.append(depth_observations)
 
         x = torch.cat(cnn_input, dim=1)
+        if self.random_crop_transform is not None:
+            x = self.random_crop_transform(x)
+        if self.random_cutout_transform is not None:
+            x = self.random_cutout_transform(x)
         x = F.avg_pool2d(x, 2)
 
         x = self.running_mean_and_var(x)
@@ -208,6 +229,7 @@ class PointNavResNetNet(Net):
         normalize_visual_inputs: bool,
         force_blind_policy: bool = False,
         discrete_actions: bool = True,
+        config = None
     ):
         super().__init__()
 
@@ -295,6 +317,7 @@ class PointNavResNetNet(Net):
                 ngroups=resnet_baseplanes // 2,
                 make_backbone=getattr(resnet, backbone),
                 normalize_visual_inputs=normalize_visual_inputs,
+                config=config,
             )
             self.goal_visual_fc = nn.Sequential(
                 nn.Flatten(),
@@ -314,6 +337,7 @@ class PointNavResNetNet(Net):
             ngroups=resnet_baseplanes // 2,
             make_backbone=getattr(resnet, backbone),
             normalize_visual_inputs=normalize_visual_inputs,
+            config=config
         )
 
         if not self.visual_encoder.is_blind:
