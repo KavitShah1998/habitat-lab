@@ -52,7 +52,6 @@ try:
     from habitat_sim.bindings import RigidState
     from habitat_sim.physics import VelocityControl
     from habitat.sims.habitat_simulator.habitat_simulator import HabitatSim
-    from habitat_sim.utils.common import quat_rotate_vector
     import habitat_sim
 except ImportError:
     pass
@@ -1147,13 +1146,6 @@ class TeleportAction(SimulatorTaskAction):
             }
         )
 
-def quat_to_rad(rotation):
-    heading_vector = quat_rotate_vector(
-        rotation.inverse(), np.array([0, 0, -1])
-    )
-    phi = np.arctan2(heading_vector[0], -heading_vector[2])
-    return phi
-
 @registry.register_task_action
 class VelocityAction(SimulatorTaskAction):
     name: str = "VELOCITY_CONTROL"
@@ -1199,6 +1191,7 @@ class VelocityAction(SimulatorTaskAction):
             robot=self.robot_name
         )
 
+
     @property
     def action_space(self):
         action_dict = {
@@ -1231,11 +1224,18 @@ class VelocityAction(SimulatorTaskAction):
         if self.robot_id is None or self.robot_id.object_id == -1:
             self._load_robot()
 
-        ep_pos = kwargs['episode'].start_position
-        ep_rot = kwargs['episode'].start_rotation
-        self._reset_robot(ep_pos, ep_rot)
+        agent_pos = kwargs['episode'].start_position
+        agent_rot = kwargs['episode'].start_rotation
+        agent_rot = mn.Matrix4.from_(
+            mn.Quaternion.rotation(
+                mn.Rad(agent_rot[3]), mn.Vector3(*agent_rot[:3]).normalized()
+            ).to_matrix(),
+            mn.Vector3(0.0, 0.0, 0.0)
+        )  # 4x4 homogenous transform with no translation
 
-        # Settle for 15 seconds to allow robot to land on ground
+        self._reset_robot(agent_pos, agent_rot)
+
+        # Settle for 15 seconds to allow robot to land on ground and be still
         self._sim.step_physics(15)
 
     def _load_robot(self):
@@ -1253,10 +1253,14 @@ class VelocityAction(SimulatorTaskAction):
                 sim=self._sim, robot=self.robot_id, dt=self.dt
             )
 
-    def _reset_robot(self, ep_pos, ep_rot):
-        # Snap robot to agent location
-        rot = [ep_rot[3], *ep_rot[:3]]
-        self.robot_id.transformation = self.convert_pose_to_robot(ep_pos, rot)
+    def _reset_robot(self, agent_pos, agent_rot):
+        # Spawn robot to agent location
+        self.robot_id.transformation = mn.Matrix4.from_(
+            agent_rot.__matmul__(
+                self.robot_wrapper.rotation_offset
+            ).rotation(),  # 3x3 rotation
+            agent_pos + self.robot_wrapper.spawn_offset  # translation vector
+        )  # 4x4 homogenous transform
 
         # Set joints to default positions
         self.robot_wrapper.robot_specific_reset()
@@ -1277,62 +1281,6 @@ class VelocityAction(SimulatorTaskAction):
         self.raibert_controller.set_init_state(
             self.robot_wrapper.calc_state()
         )
-
-    def convert_pose_to_robot(self, pos, rot):
-        # ROT IN W X Y Z, both are lists
-        heading = np.quaternion(*rot) # np.quaternion takes in as input W X Y Z
-        heading = -quat_to_rad(heading) + np.pi / 2
-
-        next_rs = mn.Matrix4.rotation_y(
-            mn.Rad(-heading),
-        ).__matmul__(
-            mn.Matrix4.rotation(
-                mn.Rad(np.pi), # rotate 180 deg in yaw
-                mn.Vector3((0.0, 1.0, 0.0)),
-            )
-        ).__matmul__(
-            mn.Matrix4.rotation(
-                mn.Rad(-np.pi / 2.0), # rotate 90 deg in roll
-                mn.Vector3((1.0, 0.0, 0.0)),
-            )
-        )
-        next_rs.translation = np.array([*pos]) + np.array([0.0, 0.425, 0.0])
-        return next_rs
-
-    def robot_rotation_to_agent_quat(self, robot_rotation):
-        # pos as a mn.Vector3
-        # ROT is list, W X Y Z
-        # np.quaternion takes in as input W X Y Z
-        robot_rotation_mat = mn.Matrix4.from_(
-            robot_rotation.to_matrix(), mn.Vector3(0, 0, 0)
-        )
-        agent_rotation_mat = robot_rotation_mat.__matmul__(
-            mn.Matrix4.rotation(
-                mn.Rad(np.pi / 2.0),  # rotate 90 deg in roll
-                mn.Vector3((1.0, 0.0, 0.0)),
-            )
-        ).__matmul__(
-            mn.Matrix4.rotation(
-                mn.Rad(-np.pi),  # rotate 180 deg in yaw
-                mn.Vector3((0.0, 1.0, 0.0)),
-            )
-        )
-        agent_quaternion = mn.Quaternion.from_matrix(agent_rotation_mat.rotation())
-        agent_quaternion = [agent_quaternion.scalar, *agent_quaternion.vector]
-
-        # np.quaternion takes in as input W X Y Z
-        heading = np.quaternion(*agent_quaternion)
-        heading = -quat_to_rad(heading) - np.pi / 2  # add 90 to yaw
-
-        agent_rotation_mat = mn.Matrix4.rotation_y(
-            mn.Rad(-heading),
-        )
-        agent_quaternion = mn.Quaternion.from_matrix(agent_rotation_mat.rotation())
-        agent_quaternion = [
-            *agent_quaternion.vector, agent_quaternion.scalar
-        ]
-
-        return agent_quaternion
 
     def step(
         self,
@@ -1367,14 +1315,14 @@ class VelocityAction(SimulatorTaskAction):
 
         # Scale actions
         lin_vel = self.min_lin_vel + lin_vel * (
-                self.max_lin_vel - self.min_lin_vel
+            self.max_lin_vel - self.min_lin_vel
         )
         ang_vel = self.min_ang_vel + ang_vel * (
-                self.max_ang_vel - self.min_ang_vel
+            self.max_ang_vel - self.min_ang_vel
         )
         ang_vel = np.deg2rad(ang_vel)
         hor_vel = self.min_hor_vel + hor_vel * (
-                self.max_hor_vel - self.min_hor_vel
+            self.max_hor_vel - self.min_hor_vel
         )
 
         if (
@@ -1399,9 +1347,9 @@ class VelocityAction(SimulatorTaskAction):
 
         state = self.robot_wrapper.calc_state()
 
-        # lin_vel = 0.15
-        # hor_vel = (np.random.rand()*2-1)*0.03
-        # ang_vel = (np.random.rand()*2-1)*np.deg2rad(5)
+        lin_vel = 0.15
+        hor_vel = (np.random.rand()*2-1)*0.03
+        ang_vel = (np.random.rand()*2-1)*np.deg2rad(5)
 
         lin_hor = np.array([lin_vel, hor_vel])
         latent_action = self.raibert_controller.plan_latent_action(
@@ -1421,23 +1369,9 @@ class VelocityAction(SimulatorTaskAction):
 
         final_position = robot_rigid_state.translation
 
-        base_trans = mn.Matrix4.rotation_y(
-            mn.Rad(-np.pi / 2),
-        ).__matmul__(  # Rotate 180 deg yaw
-            mn.Matrix4.rotation(
-                mn.Rad(np.pi),
-                mn.Vector3((0.0, 1.0, 0.0)),
-            )
-        ).__matmul__(  # Rotate 90 deg roll
-            mn.Matrix4.rotation(
-                mn.Rad(-np.pi / 2.0),
-                mn.Vector3((1.0, 0.0, 0.0)),
-            )
-        )
-
         final_rotation = mn.Quaternion.from_matrix(
             self.robot_id.transformation.__matmul__(
-                base_trans.inverted()
+                self.robot_wrapper.rotation_offset.inverted()
             ).rotation()
         )
         final_rotation = [

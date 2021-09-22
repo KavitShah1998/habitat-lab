@@ -292,6 +292,23 @@ class Spot(A1):
                                          -0.05, 0.7, -1.3,
                                          0.05, 0.7, -1.3,
                                          -0.05, 0.7, -1.3]
+
+        # Spot needs to rolled 90 deg then yaw'd 180 deg relative to agent
+        self.rotation_offset = mn.Matrix4.rotation_y(
+            mn.Rad(-np.pi / 2),  # Rotate -90 deg yaw (agent offset)
+        ).__matmul__(
+            mn.Matrix4.rotation_y(
+                mn.Rad(np.pi),  # Rotate 180 deg yaw
+            )
+        ).__matmul__(
+            mn.Matrix4.rotation_x(
+                mn.Rad(-np.pi / 2.0),  # Rotate 90 deg roll
+            )
+        )
+        
+        # Spawn the URDF 0.425 meters above the navmesh upon reset
+        self.spawn_offset = np.array([0.0, 0.425, 0.0])
+
         # self._initial_joint_positions = [0.15, 0.7, -1.3,
         #                                  -0.4, 0.7, -1.3,
         #                                  0.15, 0.7, -1.3,
