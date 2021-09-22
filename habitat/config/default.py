@@ -85,6 +85,12 @@ ACTIONS.VELOCITY_CONTROL.TIME_STEP = 1.0  # seconds
 ACTIONS.VELOCITY_CONTROL.DISCRETE_ACTIONS = []
 ACTIONS.VELOCITY_CONTROL.MUST_CALL_STOP = True
 
+# Spot dynamic nav
+ACTIONS.VELOCITY_CONTROL.ROBOT_URDF = '/private/home/naokiyokoyama/datasets/urdfs/spot/urdf/spot_hybrid.urdf'
+ACTIONS.VELOCITY_CONTROL.ROBOT = 'Spot'
+ACTIONS.VELOCITY_CONTROL.CTRL_FREQ = 120.0
+ACTIONS.VELOCITY_CONTROL.TIME_PER_STEP = 100.0
+
 _C.TASK.ACTIONS = ACTIONS
 # -----------------------------------------------------------------------------
 # # TASK SENSORS
