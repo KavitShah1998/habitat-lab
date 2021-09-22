@@ -89,7 +89,7 @@ ACTIONS.VELOCITY_CONTROL.MUST_CALL_STOP = True
 ACTIONS.VELOCITY_CONTROL.ROBOT_URDF = '/private/home/naokiyokoyama/datasets/urdfs/spot/urdf/spot_hybrid.urdf'
 ACTIONS.VELOCITY_CONTROL.ROBOT = 'Spot'
 ACTIONS.VELOCITY_CONTROL.CTRL_FREQ = 120.0
-ACTIONS.VELOCITY_CONTROL.TIME_PER_STEP = 100.0
+ACTIONS.VELOCITY_CONTROL.TIME_PER_STEP = 100
 
 _C.TASK.ACTIONS = ACTIONS
 # -----------------------------------------------------------------------------

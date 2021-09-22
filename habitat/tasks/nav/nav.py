@@ -46,6 +46,8 @@ from habitat.utils.geometry_utils import (
 )
 from habitat.utils.visualizations import fog_of_war, maps
 
+import squaternion
+
 try:
     from habitat_sim.bindings import RigidState
     from habitat_sim.physics import VelocityControl
@@ -1158,11 +1160,6 @@ class VelocityAction(SimulatorTaskAction):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        self.vel_control = VelocityControl()
-        self.vel_control.controlling_lin_vel = True
-        self.vel_control.controlling_ang_vel = True
-        self.vel_control.lin_vel_is_local = True
-        self.vel_control.ang_vel_is_local = True
 
         config = kwargs["config"]
         self.min_lin_vel, self.max_lin_vel = config.LIN_VEL_RANGE
@@ -1238,6 +1235,9 @@ class VelocityAction(SimulatorTaskAction):
         ep_rot = kwargs['episode'].start_rotation
         self._reset_robot(ep_pos, ep_rot)
 
+        # Settle for 15 seconds to allow robot to land on ground
+        self._sim.step_physics(15)
+
     def _load_robot(self):
         # Add robot into the simulator
         art_obj_mgr = self._sim.get_articulated_object_manager()
@@ -1299,6 +1299,41 @@ class VelocityAction(SimulatorTaskAction):
         next_rs.translation = np.array([*pos]) + np.array([0.0, 0.425, 0.0])
         return next_rs
 
+    def robot_rotation_to_agent_quat(self, robot_rotation):
+        # pos as a mn.Vector3
+        # ROT is list, W X Y Z
+        # np.quaternion takes in as input W X Y Z
+        robot_rotation_mat = mn.Matrix4.from_(
+            robot_rotation.to_matrix(), mn.Vector3(0, 0, 0)
+        )
+        agent_rotation_mat = robot_rotation_mat.__matmul__(
+            mn.Matrix4.rotation(
+                mn.Rad(np.pi / 2.0),  # rotate 90 deg in roll
+                mn.Vector3((1.0, 0.0, 0.0)),
+            )
+        ).__matmul__(
+            mn.Matrix4.rotation(
+                mn.Rad(-np.pi),  # rotate 180 deg in yaw
+                mn.Vector3((0.0, 1.0, 0.0)),
+            )
+        )
+        agent_quaternion = mn.Quaternion.from_matrix(agent_rotation_mat.rotation())
+        agent_quaternion = [agent_quaternion.scalar, *agent_quaternion.vector]
+
+        # np.quaternion takes in as input W X Y Z
+        heading = np.quaternion(*agent_quaternion)
+        heading = -quat_to_rad(heading) - np.pi / 2  # add 90 to yaw
+
+        agent_rotation_mat = mn.Matrix4.rotation_y(
+            mn.Rad(-heading),
+        )
+        agent_quaternion = mn.Quaternion.from_matrix(agent_rotation_mat.rotation())
+        agent_quaternion = [
+            *agent_quaternion.vector, agent_quaternion.scalar
+        ]
+
+        return agent_quaternion
+
     def step(
         self,
         *args: Any,
@@ -1354,79 +1389,40 @@ class VelocityAction(SimulatorTaskAction):
         ):
             task.is_stop_called = True  # type: ignore
             return self._sim.get_observations_at(
-                position=None,
-                rotation=None,
+                position=None, rotation=None,
             )
-
-        self.vel_control.linear_velocity = np.array(
-            [hor_vel, 0.0, -lin_vel]
-        )
-        self.vel_control.angular_velocity = np.array(
-            [0.0, ang_vel, 0.0]
-        )
-        agent_state = self._sim.get_agent_state()
 
         # TODO: Sometimes the rotation given by get_agent_state is off by 1e-4
         # in terms of if the quaternion it represents is normalized, which
         # throws an error as habitat-sim/habitat_sim/utils/validators.py has a
         # tolerance of 1e-5. It is thus explicitly re-normalized here.
 
-        # Convert from np.quaternion to mn.Quaternion
-        normalized_quaternion = np.normalized(agent_state.rotation)
-        agent_mn_quat = mn.Quaternion(
-            normalized_quaternion.imag, normalized_quaternion.real
+        state = self.robot_wrapper.calc_state()
+
+        # lin_vel = 0.15
+        # hor_vel = (np.random.rand()*2-1)*0.03
+        # ang_vel = (np.random.rand()*2-1)*np.deg2rad(5)
+
+        lin_hor = np.array([lin_vel, hor_vel])
+        latent_action = self.raibert_controller.plan_latent_action(
+            state, lin_hor, target_ang_vel=ang_vel
         )
-        current_rigid_state = RigidState(
-            agent_mn_quat,
-            agent_state.position,
-        )
+        self.raibert_controller.update_latent_action(state, latent_action)
 
-        # manually integrate the rigid state
-        goal_rigid_state = self.vel_control.integrate_transform(
-            time_step, current_rigid_state
-        )
+        for i in range(self.time_per_step):
+            raibert_action = self.raibert_controller.get_action(state, i + 1)
+            self.robot_wrapper.apply_robot_action(
+                raibert_action, self.pos_gain, self.vel_gain
+            )
+            self._sim.step_physics(self.dt)
+            state = self.robot_wrapper.calc_state()
 
-        """Check if point is on navmesh"""
-        final_position = self._sim.pathfinder.try_step_no_sliding(  # type: ignore
-            agent_state.position, goal_rigid_state.translation
-        )
-        # Check if a collision occured
-        dist_moved_before_filter = (
-                goal_rigid_state.translation - agent_state.position
-        ).dot()
-        dist_moved_after_filter = (final_position - agent_state.position).dot()
+        robot_rigid_state = self.robot_id.rigid_state
 
-        # NB: There are some cases where ||filter_end - end_pos|| > 0 when a
-        # collision _didn't_ happen. One such case is going up stairs.  Instead,
-        # we check to see if the the amount moved after the application of the
-        # filter is _less_ than the amount moved before the application of the
-        # filter.
-        EPS = 1e-5
-        collided = (dist_moved_after_filter + EPS) < dist_moved_before_filter
-        if collided:
-            agent_observations = self._sim.get_observations_at()
-            self._sim._prev_sim_obs["collided"] = True  # type: ignore
-            agent_observations["hit_navmesh"] = True
-            agent_observations["moving_backwards"] = False
-            agent_observations["moving_sideways"] = False
-            agent_observations["ang_accel"] = 0.0
-            if kwargs.get('num_steps', -1) != -1:
-                agent_observations["num_steps"] = kwargs["num_steps"]
+        final_position = robot_rigid_state.translation
 
-            self.prev_ang_vel = 0.0
-            return self._sim.get_observations_at()
-
-        """See if goal state causes interpenetration with surroundings"""
-
-        # Calculate next rigid state off agent rigid state
-
-        heading = np.quaternion(
-            goal_rigid_state.rotation.scalar, *goal_rigid_state.rotation.vector
-        )
-        heading = -quat_to_rad(heading) + np.pi / 2
-
-        next_rs = mn.Matrix4.rotation_y(
-            mn.Rad(-heading),
+        base_trans = mn.Matrix4.rotation_y(
+            mn.Rad(-np.pi / 2),
         ).__matmul__(  # Rotate 180 deg yaw
             mn.Matrix4.rotation(
                 mn.Rad(np.pi),
@@ -1439,35 +1435,29 @@ class VelocityAction(SimulatorTaskAction):
             )
         )
 
-        next_rs.translation = np.array(final_position) + np.array([
-            0.0, 0.425, 0.0,
-        ])
-
-        # Check if next rigid state causes interpenetration
-        curr_rs = self.robot_id.transformation
-        self.robot_id.transformation = next_rs
-        collided = self._sim.contact_test(self.robot_id.object_id)
-        if collided:
-            # Interpenetration occurred. Revert to last rigid state.
-            self.robot_id.transformation = curr_rs
-
-            agent_observations = self._sim.get_observations_at()
-            self._sim._prev_sim_obs["collided"] = True  # type: ignore
-            agent_observations["hit_navmesh"] = True
-            agent_observations["moving_backwards"] = False
-            agent_observations["moving_sideways"] = False
-            agent_observations["ang_accel"] = 0.0
-            if kwargs.get('num_steps', -1) != -1:
-                agent_observations["num_steps"] = kwargs["num_steps"]
-
-            self.prev_ang_vel = 0.0
-            return self._sim.get_observations_at()
-
+        final_rotation = mn.Quaternion.from_matrix(
+            self.robot_id.transformation.__matmul__(
+                base_trans.inverted()
+            ).rotation()
+        )
         final_rotation = [
-            *goal_rigid_state.rotation.vector,
-            goal_rigid_state.rotation.scalar,
+            *final_rotation.vector, final_rotation.scalar
         ]
-        final_position = goal_rigid_state.translation
+
+
+        roll, yaw, pitch = squaternion.Quaternion(
+            final_rotation[3], *final_rotation[:3]
+        ).to_euler()
+        roll_fall = np.abs(roll) > 0.75 and np.abs(roll) < 2.39
+        pitch_fall = np.abs(pitch) > 0.75 and np.abs(pitch) < 2.39
+        z_fall = final_position[1] < 0.49 or final_position[1] > 0.7
+
+        if roll_fall or pitch_fall or z_fall:
+            print('terminating episode')
+            task.is_stop_called = True
+            return self._sim.get_observations_at(
+                position=None, rotation=None,
+            )
 
         agent_observations = self._sim.get_observations_at(
             position=final_position,
@@ -1476,13 +1466,10 @@ class VelocityAction(SimulatorTaskAction):
         )
 
         # TODO: Make a better way to flag collisions
-        self._sim._prev_sim_obs["collided"] = collided  # type: ignore
-        agent_observations["hit_navmesh"] = collided
         agent_observations["moving_backwards"] = lin_vel < 0
         agent_observations["moving_sideways"] = abs(hor_vel) > self.min_abs_hor_speed
-        agent_observations["ang_accel"] = (
-                                                  ang_vel - self.prev_ang_vel
-                                          ) / self.time_step
+        agent_observations["ang_accel"] = (ang_vel - self.prev_ang_vel) / self.time_step
+
         if kwargs.get('num_steps', -1) != -1:
             agent_observations["num_steps"] = kwargs["num_steps"]
 

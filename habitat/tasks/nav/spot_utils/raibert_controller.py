@@ -105,7 +105,7 @@ class Raibert_controller():
         self.des_body_ori = np.array([0, 0, state['base_ori_euler'][2]])
         self.final_des_body_ori = np.array([0, 0, state['base_ori_euler'][2]])
         self.init_r_yaw = self.get_init_r_yaw(self.init_foot_pos)
-        print(state['j_pos'])
+        # print(state['j_pos'])
         self.swing_start_foot_pos_robot = self.kinematics_solver.forward_kinematics_robot(
             state['j_pos'])
 

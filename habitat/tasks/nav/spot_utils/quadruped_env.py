@@ -139,11 +139,34 @@ class A1():
         base_position.y = base_pos_tmp[1]
         base_position.z = base_pos_tmp[2]
 
-        _, robot_rot = self.convert_pose_from_robot(robot_state)
-        robot_rot = robot_state.rotation.__mul__(
-            mn.Quaternion.rotation(mn.Rad(np.pi / 2), mn.Vector3(1.0, 0.0, 0.0)))
+        # _, robot_rot = self.convert_pose_from_robot(robot_state)
+
+        base_trans = mn.Matrix4.rotation_y(
+            mn.Rad(-np.pi / 2),
+        ).__matmul__(  # Rotate 180 deg yaw
+            mn.Matrix4.rotation(
+                mn.Rad(np.pi),
+                mn.Vector3((0.0, 1.0, 0.0)),
+            )
+        ).__matmul__(  # Rotate 90 deg roll
+            mn.Matrix4.rotation(
+                mn.Rad(-np.pi / 2.0),
+                mn.Vector3((1.0, 0.0, 0.0)),
+            )
+        )
+
+        final_rotation = mn.Quaternion.from_matrix(
+            self.robot.transformation.__matmul__(
+                base_trans.inverted()
+            ).rotation()
+        )
+        robot_rot = final_rotation
+
+        # robot_rot = robot_state.rotation.__mul__(
+        #     mn.Quaternion.rotation(mn.Rad(np.pi / 2), mn.Vector3(1.0, 0.0, 0.0)))
         tmp_quat = squaternion.Quaternion(robot_rot.scalar, *robot_rot.vector)
         roll, yaw, pitch = tmp_quat.to_euler()
+        # roll, pitch, yaw = tmp_quat.to_euler()
         base_orientation_euler = np.array([roll, pitch, yaw])
         # base_orientation_euler = np.array([0, 0, 0])
 
