@@ -65,9 +65,9 @@ def execute_exp(config: Config, run_type: str) -> None:
 
 PATHS_TO_JUNK = {
     'LOG_FILE': '/private/home/naokiyokoyama/junk/train.log',
-    'CHECKPOINT_FOLDER': '/private/home/naokiyokoyama/junk',
-    'TENSORBOARD_DIR': '/private/home/naokiyokoyama/junk',
-    'VIDEO_DIR': '/private/home/naokiyokoyama/junk',
+    'CHECKPOINT_FOLDER': '/private/home/naokiyokoyama/junk/',
+    'TENSORBOARD_DIR': '/private/home/naokiyokoyama/junk/',
+    'VIDEO_DIR': '/private/home/naokiyokoyama/junk/',
 }
 
 def run_exp(exp_config: str, run_type: str, opts=None) -> None:
@@ -81,17 +81,25 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     Returns:
         None.
     """
-    if 'RL.POLICY.fuse_states' in opts:
-        i = opts.index('RL.POLICY.fuse_states')
-        opts[i+1] = opts[i+1].split(',')
-        if len(opts[i+1]) == 1 and opts[i+1][0] == '':
-            opts[i+1] = []
-    if 'JUNK' in opts and opts[opts.index('JUNK')+1] == 'True':
+    # for idx, i in enumerate(opts):
+    #     print(idx, i)
+    if 'JUNK' in opts:
+        idx = opts.index('JUNK')
+        opts.pop(idx)
+        opts.pop(idx)
         for k,v in PATHS_TO_JUNK.items():
             if k in opts:
                 opts[opts.index(k)+1] = v
             else:
                 opts.extend([k, v])
+
+    # for idx, i in enumerate(opts):
+    #     print(idx, i)
+    if 'RL.POLICY.fuse_states' in opts:
+        i = opts.index('RL.POLICY.fuse_states')
+        opts[i+1] = opts[i+1].split(',')
+        if len(opts[i+1]) == 1 and opts[i+1][0] == '':
+            opts[i+1] = []
 
     config = get_config(exp_config, opts)
     execute_exp(config, run_type)

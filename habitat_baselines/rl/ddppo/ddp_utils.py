@@ -177,12 +177,16 @@ def load_resume_state(filename_or_config: Union[Config, str]) -> Optional[Any]:
 
     :return: The saved state if the file exists, else none
     """
+    return None
     if isinstance(filename_or_config, Config):
         filename = resume_state_filename(filename_or_config)
         cfg = filename_or_config
         found_f = None
         if not osp.isdir(cfg.CHECKPOINT_FOLDER):
-            os.mkdir(cfg.CHECKPOINT_FOLDER)
+            try:
+                os.mkdir(cfg.CHECKPOINT_FOLDER)
+            except FileExistsError:  # Sometimes another process butts in
+                pass
         for f in os.listdir(cfg.CHECKPOINT_FOLDER):
             if cfg.PREFIX in f:
                 found_f = f

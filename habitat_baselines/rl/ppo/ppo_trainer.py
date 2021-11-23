@@ -75,8 +75,8 @@ class PPOTrainer(BaseRLTrainer):
     agent: PPO
     actor_critic: Policy
 
-    def __init__(self, config=None, run_type='train'):
-        if run_type == 'train':
+    def __init__(self, config=None, run_type="train"):
+        if run_type == "train":
             resume_state = load_resume_state(config)
             if resume_state is not None:
                 config = resume_state["config"]
@@ -139,9 +139,14 @@ class PPOTrainer(BaseRLTrainer):
         )
         keep_keys = {}
 
-        ignore_keys = ppo_cfg.ignore_obs.split(',')
-        observation_space = spaces.Dict({k: v for k,v in observation_space.spaces.items()
-            if k not in ignore_keys})
+        ignore_keys = ppo_cfg.ignore_obs.split(",")
+        observation_space = spaces.Dict(
+            {
+                k: v
+                for k, v in observation_space.spaces.items()
+                if k not in ignore_keys
+            }
+        )
 
         self.actor_critic = policy.from_config(
             self.config, observation_space, self.envs.action_spaces[0]
@@ -162,10 +167,10 @@ class PPOTrainer(BaseRLTrainer):
             # stop action.
             model_dict = self.actor_critic.state_dict()
             tmp_load_d = {
-                    k[len("actor_critic.") :]: v
-                    for k, v in pretrained_state["state_dict"].items()
-                    if 'action_distribution' not in k
-                }
+                k[len("actor_critic.") :]: v
+                for k, v in pretrained_state["state_dict"].items()
+                if "action_distribution" not in k
+            }
             model_dict.update(tmp_load_d)
             self.actor_critic.load_state_dict(model_dict)
         elif self.config.RL.DDPPO.pretrained_encoder:
@@ -202,9 +207,11 @@ class PPOTrainer(BaseRLTrainer):
 
     def _init_envs(self, is_eval, config=None):
         import sys
-        sys.path.insert(0, './')
+
+        sys.path.insert(0, "./")
         from orp_env_adapter import get_hab_envs, get_hab_args
         from method.orp_policy_adapter import HabPolicy
+
         if config is None:
             config = self.config
 
@@ -214,21 +221,26 @@ class PPOTrainer(BaseRLTrainer):
                 policy = policy(config)
             else:
                 policy = None
-            self.envs, args = get_hab_envs(config, './config.yaml',
-                    is_eval,
-                    spec_gpu=self.config.TORCH_GPU_ID,
-                    setup_policy=policy)
+            self.envs, args = get_hab_envs(
+                config,
+                "./config.yaml",
+                is_eval,
+                spec_gpu=self.config.TORCH_GPU_ID,
+                setup_policy=policy,
+            )
         else:
-            args = get_hab_args(config, './config.yaml', spec_gpu=self.config.TORCH_GPU_ID)
+            args = get_hab_args(
+                config, "./config.yaml", spec_gpu=self.config.TORCH_GPU_ID
+            )
             self.envs = construct_envs(
-                    config,
-                    get_env_class(self.config.ENV_NAME),
-                    workers_ignore_signals=is_slurm_batch_job(),
-                    )
+                config,
+                get_env_class(self.config.ENV_NAME),
+                workers_ignore_signals=is_slurm_batch_job(),
+            )
         self.args = args
 
     def is_simple_env(self):
-        return self.config.ENV_NAME != 'Orp-v1'
+        return self.config.ENV_NAME != "Orp-v1"
 
     def _init_train(self):
         if self.config.RL.DDPPO.force_distributed:
@@ -311,11 +323,15 @@ class PPOTrainer(BaseRLTrainer):
             )
 
         self._nbuffers = 2 if ppo_cfg.use_double_buffered_sampler else 1
+        if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
+            self.policy_action_space = spaces.Box(-1.0, 1.0, (2,))
+        else:
+            self.policy_action_space = self.envs.action_spaces[0]
         self.rollouts = RolloutStorage(
             ppo_cfg.num_steps,
             self.envs.num_envs,
             obs_space,
-            self.envs.action_spaces[0],
+            self.policy_action_space,
             ppo_cfg.hidden_size,
             num_recurrent_layers=self.actor_critic.net.num_recurrent_layers,
             is_double_buffered=ppo_cfg.use_double_buffered_sampler,
@@ -368,11 +384,9 @@ class PPOTrainer(BaseRLTrainer):
             checkpoint["extra_state"] = extra_state
 
         save_path = os.path.join(self.config.CHECKPOINT_FOLDER, file_name)
-        print('Checkpointed to ', save_path)
+        print("Checkpointed to ", save_path)
 
-        torch.save(
-            checkpoint, save_path
-        )
+        torch.save(checkpoint, save_path)
 
     def load_checkpoint(self, checkpoint_path: str, *args, **kwargs) -> Dict:
         r"""Load checkpoint of specified path as a dict.
@@ -399,7 +413,7 @@ class PPOTrainer(BaseRLTrainer):
                 continue
 
             if isinstance(v, dict):
-                use_v = {k:dv for k, dv in v.items() if isinstance(k, str)}
+                use_v = {k: dv for k, dv in v.items() if isinstance(k, str)}
                 result.update(
                     {
                         k + "." + subk: subv
@@ -469,15 +483,22 @@ class PPOTrainer(BaseRLTrainer):
         profiling_wrapper.range_pop()  # compute actions
 
         t_step_env = time.time()
-        #TODO: Figure out how to step
+        # TODO: Figure out how to step
 
-        for index_env, act in zip(
-            range(env_slice.start, env_slice.stop), actions.unbind(0)
-        ):
-            if self.is_simple_env():
-                self.envs.async_step_at(index_env, act.item())
-            else:
-                self.envs.async_step_at(index_env, {"action": act})
+        if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
+            for index_env, act in zip(
+                range(env_slice.start, env_slice.stop),
+                self.actor_critic.choose_mix_of_actions(actions),
+            ):
+                self.envs.async_step_at(index_env, act)
+        else:
+            for index_env, act in zip(
+                range(env_slice.start, env_slice.stop), actions.unbind(0)
+            ):
+                if self.is_simple_env():
+                    self.envs.async_step_at(index_env, act.item())
+                else:
+                    self.envs.async_step_at(index_env, {"action": act})
 
         self.env_time += time.time() - t_step_env
 
@@ -514,7 +535,7 @@ class PPOTrainer(BaseRLTrainer):
             observations, device=self.device, cache=self._obs_batching_cache
         )
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-        with profiling_wrapper.RangeContext('collect_env_to_tensors'):
+        with profiling_wrapper.RangeContext("collect_env_to_tensors"):
             rewards = torch.tensor(
                 rewards_l,
                 dtype=torch.float,
@@ -543,10 +564,16 @@ class PPOTrainer(BaseRLTrainer):
                     self.running_episode_stats[k] = torch.zeros_like(
                         self.running_episode_stats["count"]
                     )
+                try:
+                    self.running_episode_stats[k][env_slice] += v.where(
+                        done_masks, v.new_zeros(())
+                    )  # type: ignore
+                except:
+                    pass
 
-                self.running_episode_stats[k][env_slice] += v.where(done_masks, v.new_zeros(()))  # type: ignore
-
-            self.current_episode_reward[env_slice].masked_fill_(done_masks, 0.0)
+            self.current_episode_reward[env_slice].masked_fill_(
+                done_masks, 0.0
+            )
 
             if self._static_encoder:
                 with torch.no_grad():
@@ -663,12 +690,13 @@ class PPOTrainer(BaseRLTrainer):
         # Check to see if there are any metrics
         # that haven't been logged yet
         def get_k_count(k):
-            scene_name = k.split('/')[0]
-            count_k = scene_name + '_COUNT'
+            scene_name = k.split("/")[0]
+            count_k = scene_name + "_COUNT"
             if count_k in deltas:
                 return max(deltas[count_k], 1.0)
             else:
-                return deltas['count']
+                return deltas["count"]
+
         metrics = {
             k: v / get_k_count(k)
             for k, v in deltas.items()
@@ -685,18 +713,21 @@ class PPOTrainer(BaseRLTrainer):
 
         # log stats
         if self.num_updates_done % self.config.LOG_INTERVAL == 0:
-            fps = self.num_steps_done / ((time.time() - self.t_start) + prev_time)
-            logger.info(
-                "update: {}\tfps: {:.3f}\t".format(
-                    self.num_updates_done,
-                    fps
-                )
+            fps = self.num_steps_done / (
+                (time.time() - self.t_start) + prev_time
             )
-            writer.add_scalars('metrics', {
-                        'fps': fps,
-                        'pth_time': self.pth_time,
-                        'env_time': self.env_time
-                        }, self.num_steps_done)
+            logger.info(
+                "update: {}\tfps: {:.3f}\t".format(self.num_updates_done, fps)
+            )
+            writer.add_scalars(
+                "metrics",
+                {
+                    "fps": fps,
+                    "pth_time": self.pth_time,
+                    "env_time": self.env_time,
+                },
+                self.num_steps_done,
+            )
 
             logger.info(
                 "update: {}\tenv-time: {:.3f}s\tpth-time: {:.3f}s\t"
@@ -710,16 +741,15 @@ class PPOTrainer(BaseRLTrainer):
             self.pth_time = 0
             self.env_time = 0
 
-
             logger.info(
-               "Average window size: {}  {}".format(
-                   len(self.window_episode_stats["count"]),
-                   "  ".join(
-                       "{}: {:.3f}".format(k, v / deltas["count"])
-                       for k, v in deltas.items()
-                       if k != "count"
-                   ),
-               )
+                "Average window size: {}  {}".format(
+                    len(self.window_episode_stats["count"]),
+                    "  ".join(
+                        "{}: {:.3f}".format(k, v / deltas["count"])
+                        for k, v in deltas.items()
+                        if k != "count"
+                    ),
+                )
             )
 
     def should_end_early(self, rollout_step) -> bool:
@@ -800,7 +830,7 @@ class PPOTrainer(BaseRLTrainer):
                     )
 
                 if rank0_only() and self._should_save_resume_state():
-                    print('Saving habitat resume state')
+                    print("Saving habitat resume state")
                     requeue_stats = dict(
                         env_time=self.env_time,
                         pth_time=self.pth_time,
@@ -882,7 +912,11 @@ class PPOTrainer(BaseRLTrainer):
 
                 self.num_updates_done += 1
                 losses = self._coalesce_post_step(
-                    dict(value_loss=value_loss, action_loss=action_loss, dist_entropy=dist_entropy),
+                    dict(
+                        value_loss=value_loss,
+                        action_loss=action_loss,
+                        dist_entropy=dist_entropy,
+                    ),
                     count_steps_delta,
                 )
 
@@ -916,34 +950,6 @@ class PPOTrainer(BaseRLTrainer):
 
             self.envs.close()
 
-
-    def _eval_checkpoint(
-        self,
-        checkpoint_path: str,
-        writer: TensorboardWriter,
-        checkpoint_index: int = 0,
-    ) -> None:
-        r"""Evaluates a single checkpoint.
-
-        Args:
-            checkpoint_path: path of checkpoint
-            writer: tensorboard writer object for logging to tensorboard
-            checkpoint_index: index of cur checkpoint for logging
-
-        Returns:
-            None
-        """
-        if self._is_distributed:
-            raise RuntimeError("Evaluation does not support distributed mode")
-
-        # Map location CPU is almost always better than mapping to a CUDA device.
-        ckpt_dict = self.load_checkpoint(checkpoint_path, map_location="cpu")
-
-        if self.config.EVAL.USE_CKPT_CONFIG:
-            config = self._setup_eval_config(ckpt_dict["config"])
-        else:
-            config = self.config.clone()
-
     def _eval_checkpoint(
         self,
         checkpoint_path: str,
@@ -961,7 +967,8 @@ class PPOTrainer(BaseRLTrainer):
             None
         """
         import sys
-        sys.path.insert(0, './')
+
+        sys.path.insert(0, "./")
         from method.orp_policy_adapter import HabPolicy
         from orp_env_adapter import ALL_SCENES
 
@@ -970,13 +977,17 @@ class PPOTrainer(BaseRLTrainer):
 
         if self.config.EVAL.EMPTY:
             ckpt_dict = {
-                    'state_dict': {
-                        'actor_critic.dummy_param': nn.Parameter(torch.tensor([0.0]))
-                        }
-                    }
+                "state_dict": {
+                    "actor_critic.dummy_param": nn.Parameter(
+                        torch.tensor([0.0])
+                    )
+                }
+            }
         else:
             # Map location CPU is almost always better than mapping to a CUDA device.
-            ckpt_dict = self.load_checkpoint(checkpoint_path, map_location="cpu")
+            ckpt_dict = self.load_checkpoint(
+                checkpoint_path, map_location="cpu"
+            )
 
         if self.config.EVAL.USE_CKPT_CONFIG:
             config = self._setup_eval_config(ckpt_dict["config"])
@@ -986,7 +997,7 @@ class PPOTrainer(BaseRLTrainer):
         config.defrost()
         # Always keep the video directory the same.
         config.VIDEO_DIR = self.config.VIDEO_DIR
-        if 'EVAL_NODE' in config.TASK_CONFIG:
+        if "EVAL_NODE" in config.TASK_CONFIG:
             config.TASK_CONFIG.EVAL_NODE = self.config.TASK_CONFIG.EVAL_NODE
         config.TASK_CONFIG.DATASET.SPLIT = config.EVAL.SPLIT
         config.freeze()
@@ -994,13 +1005,16 @@ class PPOTrainer(BaseRLTrainer):
         ppo_cfg = config.RL.PPO
 
         use_video_option = self.config.VIDEO_OPTION[:]
-        if False and (checkpoint_index+1) % config.CHECKPOINT_RENDER_INTERVAL != 0:
+        if (
+            False
+            and (checkpoint_index + 1) % config.CHECKPOINT_RENDER_INTERVAL != 0
+        ):
             use_video_option = []
             config.defrost()
             config.hab_high_render = False
             config.freeze()
         else:
-            print('Rendering')
+            print("Rendering")
             config.defrost()
             config.hab_high_render = True
             config.freeze()
@@ -1021,24 +1035,37 @@ class PPOTrainer(BaseRLTrainer):
         self._init_envs(True, config)
         self._setup_actor_critic_agent(ppo_cfg)
 
-        self.agent.load_state_dict(ckpt_dict["state_dict"])
+        try:
+            self.agent.load_state_dict(ckpt_dict["state_dict"])
+        except:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+
         self.actor_critic = self.agent.actor_critic
 
-        if self.actor_critic is not None and isinstance(self.agent.actor_critic, HabPolicy):
+        if self.actor_critic is not None and isinstance(
+            self.agent.actor_critic, HabPolicy
+        ):
             # For custom policy.
-            self.agent.actor_critic.init(self.envs.observation_spaces[0],
-                    self.envs.action_spaces[0], self.args)
+            self.agent.actor_critic.init(
+                self.envs.observation_spaces[0],
+                self.envs.action_spaces[0],
+                self.args,
+            )
             self.agent.actor_critic.set_env_ref(self.envs)
 
         ## For debugging a particular episode index.
-        #print('Searching for particular episode')
+        # print('Searching for particular episode')
         ##while True:
-        #for _ in range(13):
+        # for _ in range(13):
         #    observations = self.envs.reset()
         #    print('Episode', self.envs.current_episodes()[0].episode_id)
         #    #if self.envs.current_episodes()[0].episode_id == '22':
         #    #    break
-        #print('Found matching environment')
+        # print('Found matching environment')
         ## IF USING THE ABOVE, COMMENT OUT THE BELOW.
 
         observations = self.envs.reset()
@@ -1062,12 +1089,16 @@ class PPOTrainer(BaseRLTrainer):
             ac_shape = 1
             ac_dtype = torch.float32
         else:
-            if hasattr(self.envs.action_spaces[0], 'spaces'):
-                ac_shape = len(self.envs.action_spaces[0].spaces)
-                ac_dtype = torch.long
-            else:
-                ac_shape = self.envs.action_spaces[0].shape[0]
+            if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
+                ac_shape = 2
                 ac_dtype = torch.float32
+            else:
+                if hasattr(self.envs.action_spaces[0], "spaces"):
+                    ac_shape = len(self.envs.action_spaces[0].spaces)
+                    ac_dtype = torch.long
+                else:
+                    ac_shape = self.envs.action_spaces[0].shape[0]
+                    ac_dtype = torch.float32
 
         prev_actions = torch.zeros(
             self.config.NUM_ENVIRONMENTS,
@@ -1108,23 +1139,32 @@ class PPOTrainer(BaseRLTrainer):
         step_id = checkpoint_index
         if "extra_state" in ckpt_dict and "step" in ckpt_dict["extra_state"]:
             step_id = ckpt_dict["extra_state"]["step"]
-        if isinstance(self.actor_critic, HabPolicy) and self.config.PREFIX != 'debug':
+        if (
+            isinstance(self.actor_critic, HabPolicy)
+            and self.config.PREFIX != "debug"
+        ):
             # Not debug because it is annoying when a new folder is
             # created every time for the videos while debugging.
-            step_id = self.actor_critic.mod_policy.get_total_num_training_steps()
+            step_id = (
+                self.actor_critic.mod_policy.get_total_num_training_steps()
+            )
 
         pbar = tqdm.tqdm(total=number_of_eval_episodes)
         self.actor_critic.eval()
 
-        use_video_dir = os.path.join(self.config.VIDEO_DIR,
-                "ckpt_%i_%i" % (checkpoint_index, int(step_id)))
+        use_video_dir = os.path.join(
+            self.config.VIDEO_DIR,
+            "ckpt_%i_%i" % (checkpoint_index, int(step_id)),
+        )
         if len(use_video_option) > 0 and not os.path.exists(use_video_dir):
             os.makedirs(use_video_dir)
 
         should_save_replay = False
         if self.config.NUM_PROCESSES == 1:
-            single_sim = rutils.get_env_attr(self.envs.env.envs[0], 'sim')
-            should_save_replay = single_sim.habitat_config.HABITAT_SIM_V0.get('ENABLE_GFX_REPLAY_SAVE', False)
+            single_sim = rutils.get_env_attr(self.envs.env.envs[0], "sim")
+            should_save_replay = single_sim.habitat_config.HABITAT_SIM_V0.get(
+                "ENABLE_GFX_REPLAY_SAVE", False
+            )
 
         cur_render = 0
         while (
@@ -1152,7 +1192,15 @@ class PPOTrainer(BaseRLTrainer):
             if self.is_simple_env():
                 step_data = [a.item() for a in actions.to(device="cpu")]
             else:
-                step_data = [{'action': a.numpy()} for a in actions.to(device="cpu")]
+                if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
+                    step_data = self.actor_critic.choose_mix_of_actions(
+                        actions
+                    )
+                else:
+                    step_data = [
+                        {"action": a.numpy()} for a in actions.to(device="cpu")
+                    ]
+                    # print('step_data', step_data)
 
             outputs = self.envs.step(step_data)
 
@@ -1181,10 +1229,12 @@ class PPOTrainer(BaseRLTrainer):
             n_envs = self.envs.num_envs
             if len(use_video_option) > 0:
                 if self.is_simple_env():
-                    frames = [observations_to_image(observations[i], infos[i])
-                            for i in range(len(infos))]
+                    frames = [
+                        observations_to_image(observations[i], infos[i])
+                        for i in range(len(infos))
+                    ]
                 else:
-                    frames = self.envs.render(mode='rgb_array')
+                    frames = self.envs.render(mode="rgb_array")
             for i in range(n_envs):
                 if (
                     next_episodes[i].scene_id,
@@ -1198,7 +1248,7 @@ class PPOTrainer(BaseRLTrainer):
                     frame = frames[i]
                     if self.is_simple_env():
                         if not_done_masks[i].item() != 0:
-                            rgb_frames[i].append(np.flip(frame,0))
+                            rgb_frames[i].append(np.flip(frame, 0))
                     else:
                         rgb_frames[i].append(frame)
 
@@ -1207,19 +1257,19 @@ class PPOTrainer(BaseRLTrainer):
                     pbar.update()
                     episode_stats = dict()
                     fsm_dat = {}
-                    if hasattr(self.actor_critic, 'mod_policy'):
+                    if hasattr(self.actor_critic, "mod_policy"):
                         # Stats from the modular policy such as failed modules.
                         fsm_dat = self.actor_critic.mod_policy.get_skill_data()
-                        if infos[i]['ep_success'] == 1.0:
+                        if infos[i]["ep_success"] == 1.0:
                             # Nothing could have been a failure
-                            fsm_dat = {k: 0.0 if 'failure' in k else v
-                                    for k, v in fsm_dat.items()}
+                            fsm_dat = {
+                                k: 0.0 if "failure" in k else v
+                                for k, v in fsm_dat.items()
+                            }
                         episode_stats.update(fsm_dat)
                     episode_stats["reward"] = current_episode_reward[i].item()
                     extracted = self._extract_scalars_from_info(infos[i])
-                    episode_stats.update(
-                        extracted
-                    )
+                    episode_stats.update(extracted)
                     for k in {**extracted, **fsm_dat}:
                         stats_counts[k] += 1
                     current_episode_reward[i] = 0
@@ -1232,26 +1282,26 @@ class PPOTrainer(BaseRLTrainer):
                     ] = episode_stats
                     if len(use_video_option) > 0:
                         name_conversion = {
-                                'ep_success': 'succ',
-                                'ep_constraint_violate': 'const_violate',
-                                'spl': 'spl',
-                                'ep_accum_force_end': 'force_end',
-                                'node_idx': 'node',
-                                # MP failure highest-level bins
-                                'plan_failure': 'plan_fail',
-                                'plan_guess': 'plan_guess',
-                                'execute_failure': 'ex_fail'
-                                }
+                            "ep_success": "succ",
+                            "ep_constraint_violate": "const_violate",
+                            "spl": "spl",
+                            "ep_accum_force_end": "force_end",
+                            "node_idx": "node",
+                            # MP failure highest-level bins
+                            "plan_failure": "plan_fail",
+                            "plan_guess": "plan_guess",
+                            "execute_failure": "ex_fail",
+                        }
                         # filename
                         fname_metrics = {
-                                name_conversion[k]: v
-                                for k, v in episode_stats.items()
-                                if k in list(name_conversion.keys())
-                                }
-                        fname_metrics['reward'] = episode_stats['reward']
-                        if 'scene_name' in infos[i]:
-                            scene_name = ALL_SCENES[infos[i]['scene_name']]
-                            fname_metrics['name'] = scene_name
+                            name_conversion[k]: v
+                            for k, v in episode_stats.items()
+                            if k in list(name_conversion.keys())
+                        }
+                        fname_metrics["reward"] = episode_stats["reward"]
+                        if "scene_name" in infos[i]:
+                            scene_name = ALL_SCENES[infos[i]["scene_name"]]
+                            fname_metrics["name"] = scene_name
 
                         video_name = generate_video(
                             video_option=use_video_option,
@@ -1261,15 +1311,18 @@ class PPOTrainer(BaseRLTrainer):
                             checkpoint_idx=checkpoint_index,
                             metrics=fname_metrics,
                             tb_writer=writer,
-                            fps=self.config.VIDEO_FPS
+                            fps=self.config.VIDEO_FPS,
                         )
 
                         if len(rgb_frames[i]) <= 3:
-                            print('SUPER SHORT!')
+                            print("SUPER SHORT!")
                             # exit()
 
                         rgb_frames[i] = []
-                        if self.config.VIDEO_MAX_RENDER > 0 and cur_render > self.config.VIDEO_MAX_RENDER:
+                        if (
+                            self.config.VIDEO_MAX_RENDER > 0
+                            and cur_render > self.config.VIDEO_MAX_RENDER
+                        ):
                             # Turn off rendering.
                             self.config.defrost()
                             use_video_option = []
@@ -1277,7 +1330,9 @@ class PPOTrainer(BaseRLTrainer):
                         cur_render += 1
                         replay_dir = use_video_dir
                         if should_save_replay:
-                            single_sim._sim.gfx_replay_manager.write_saved_keyframes_to_file(video_name + ".json")
+                            single_sim._sim.gfx_replay_manager.write_saved_keyframes_to_file(
+                                video_name + ".json"
+                            )
 
             not_done_masks = not_done_masks.to(device=self.device)
             (
@@ -1303,26 +1358,28 @@ class PPOTrainer(BaseRLTrainer):
         aggregated_stats = dict()
         should_save_std = isinstance(self.agent.actor_critic, HabPolicy)
         for stat_key in next(iter(stats_episodes.values())).keys():
-            if stat_key in ['reward', 'count']:
+            if stat_key in ["reward", "count"]:
                 use_count = num_episodes
             else:
                 if stat_key not in stats_counts:
                     raise ValueError(f"{stat_key} not present in count dict")
                 use_count = stats_counts[stat_key]
 
-            values = np.array([v[stat_key]
-                for v in stats_episodes.values()
-                if stat_key in v])
+            values = np.array(
+                [v[stat_key] for v in stats_episodes.values() if stat_key in v]
+            )
             mean_val = sum(values) / use_count
             aggregated_stats[stat_key] = mean_val
 
             if self.config.EVAL_SAVE_STD:
                 if self.config.hab_multi_scene:
-                    raise ValueError('Cannot compute STD with multi-scene breakdown')
-                if 'profile' in stat_key:
+                    raise ValueError(
+                        "Cannot compute STD with multi-scene breakdown"
+                    )
+                if "profile" in stat_key:
                     continue
-                std = np.sqrt(np.mean(np.abs(values - mean_val)**2))
-                aggregated_stats[stat_key + '_std'] = std
+                std = np.sqrt(np.mean(np.abs(values - mean_val) ** 2))
+                aggregated_stats[stat_key + "_std"] = std
 
         for k, v in aggregated_stats.items():
             logger.info(f"Average episode {k}: {v:.4f}")
@@ -1338,8 +1395,7 @@ class PPOTrainer(BaseRLTrainer):
             writer.add_scalars("eval_metrics", metrics, step_id)
 
         self.envs.close()
-        if 'HabFormatWrapper' in str(type(self.envs)):
-            sim = rutils.get_env_attr(self.envs.env.envs[0], '_sim')
+        if "HabFormatWrapper" in str(type(self.envs)):
+            sim = rutils.get_env_attr(self.envs.env.envs[0], "_sim")
             sim.close(destroy=True)
         del self.envs
-

@@ -38,11 +38,15 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
                 self.action_distribution = CategoricalNet(
                     self.net.output_size, action_space.n
                 )
-                #self.action_distribution = putils.get_def_dist((self.net.output_size,), spaces.Discrete(action_space.n))
+                # self.action_distribution = putils.get_def_dist((self.net.output_size,), spaces.Discrete(action_space.n))
             else:
-                self.action_distribution = putils.get_def_dist((self.net.output_size,), action_space)
+                self.action_distribution = putils.get_def_dist(
+                    (self.net.output_size,), action_space
+                )
 
             self.critic = CriticHead(self.net.output_size)
+
+        self.count = 0
 
     def forward(self, *x):
         raise NotImplementedError
@@ -55,6 +59,12 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
         masks,
         deterministic=False,
     ):
+        # print('batched_obs["depth"]', observations["depth"])
+        # print(
+        #     'batched_obs["target_point_goal_gps_and_compass_sensor"]',
+        #     observations["target_point_goal_gps_and_compass_sensor"],
+        # )
+        # print('self.hidden_state', rnn_hidden_states)
         features, rnn_hidden_states = self.net(
             observations, rnn_hidden_states, prev_actions, masks
         )
@@ -68,6 +78,13 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
 
         action_log_probs = distribution.log_probs(action)
 
+
+        # print('self.prev_actions', prev_actions)
+        # print('self.masks', masks)
+        # print('action', action)
+        # self.count += 1
+        # if self.count == 2:
+        #     exit()
         return value, action, action_log_probs, rnn_hidden_states
 
     def get_value(self, observations, rnn_hidden_states, prev_actions, masks):
@@ -116,27 +133,34 @@ class PointNavBaselinePolicy(Policy):
         hidden_size: int = 512,
         **kwargs
     ):
+        # print(observation_space)
+        # print(action_space)
+        # print(hidden_size)
+        # print(kwargs)
+        # [print(9) for _ in range(30)]
+        # exit()
         super().__init__(
             PointNavBaselineNet(  # type: ignore
                 observation_space=observation_space,
                 hidden_size=hidden_size,
                 **kwargs,
             ),
-            action_space
+            action_space,
         )
 
     @classmethod
     def from_config(
         cls, config: Config, observation_space: spaces.Dict, action_space
     ):
-        goal_hidden_size = goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0)
+        goal_hidden_size = config.RL.PPO.get("goal_hidden_size", 0)
+        # [print(config.RL.POLICY.fuse_states) for _ in range(30)]
         return cls(
             observation_space=observation_space,
             action_space=action_space,
             hidden_size=config.RL.PPO.hidden_size,
             goal_hidden_size=goal_hidden_size,
             fuse_states=config.RL.POLICY.fuse_states,
-            force_blind=config.RL.POLICY.force_blind
+            force_blind=config.RL.POLICY.force_blind,
         )
 
 
@@ -172,11 +196,17 @@ class PointNavBaselineNet(Net):
         hidden_size: int,
         goal_hidden_size,
         fuse_states,
-        force_blind
+        force_blind,
     ):
         super().__init__()
 
-        if TargetPointGoalGPSAndCompassSensor.cls_uuid in observation_space.spaces:
+        # print(observation_space.spaces.keys())
+        # exit()
+
+        if (
+            TargetPointGoalGPSAndCompassSensor.cls_uuid
+            in observation_space.spaces
+        ):
             self._n_input_goal = observation_space.spaces[
                 TargetPointGoalGPSAndCompassSensor.cls_uuid
             ].shape[0]
@@ -199,23 +229,26 @@ class PointNavBaselineNet(Net):
                 goal_observation_space, hidden_size, False
             )
             self._n_input_goal = hidden_size
-        else:
-            self.fuse_states = fuse_states
-            self._n_input_goal = sum([observation_space.spaces[n].shape[0] for n in
-                    self.fuse_states])
+
+        self.fuse_states = fuse_states
+        self._n_input_goal = sum(
+            [observation_space.spaces[n].shape[0] for n in self.fuse_states]
+        )
 
         self._hidden_size = hidden_size
         self._goal_hidden_size = goal_hidden_size
 
-        self.visual_encoder = SimpleCNN(observation_space, hidden_size,
-                force_blind)
+        self.visual_encoder = SimpleCNN(
+            observation_space, hidden_size, force_blind
+        )
         state_dim = self._n_input_goal
         if self._goal_hidden_size != 0:
             self.goal_encoder = nn.Sequential(
-                    nn.Linear(self._n_input_goal, self._goal_hidden_size),
-                    nn.ReLU(),
-                    nn.Linear(self._goal_hidden_size, self._goal_hidden_size),
-                    nn.ReLU())
+                nn.Linear(self._n_input_goal, self._goal_hidden_size),
+                nn.ReLU(),
+                nn.Linear(self._goal_hidden_size, self._goal_hidden_size),
+                nn.ReLU(),
+            )
             state_dim = self._goal_hidden_size
 
         self.state_encoder = build_rnn_state_encoder(
@@ -238,8 +271,11 @@ class PointNavBaselineNet(Net):
         return self.state_encoder.num_recurrent_layers
 
     def forward(self, observations, rnn_hidden_states, prev_actions, masks):
+        target_encoding = None
         if TargetPointGoalGPSAndCompassSensor.cls_uuid in observations:
-            target_encoding = observations[TargetPointGoalGPSAndCompassSensor.cls_uuid]
+            target_encoding = observations[
+                TargetPointGoalGPSAndCompassSensor.cls_uuid
+            ]
         elif IntegratedPointGoalGPSAndCompassSensor.cls_uuid in observations:
             target_encoding = observations[
                 IntegratedPointGoalGPSAndCompassSensor.cls_uuid
@@ -249,17 +285,17 @@ class PointNavBaselineNet(Net):
         elif ImageGoalSensor.cls_uuid in observations:
             image_goal = observations[ImageGoalSensor.cls_uuid]
             target_encoding = self.goal_visual_encoder({"rgb": image_goal})
-        else:
-            if len(self.fuse_states) > 0:
-                target_encoding = torch.cat([observations[k] for k in
-                    self.fuse_states], dim=-1)
-            else:
-                target_encoding = None
+
+        if len(self.fuse_states) > 0:
+            target_encoding = torch.cat(
+                [observations[k] for k in self.fuse_states], dim=-1
+            )
 
         if target_encoding is None:
             x = []
         else:
             x = [target_encoding]
+        # print('target_encoding', target_encoding)
 
         if self._goal_hidden_size != 0:
             x = self.goal_encoder(torch.cat(x, dim=1))

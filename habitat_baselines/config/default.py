@@ -224,6 +224,7 @@ def get_config(
                 config_paths = [config_paths]
 
         for config_path in config_paths:
+            config.set_new_allowed(True)
             config.merge_from_file(config_path)
 
     if opts:
@@ -234,6 +235,30 @@ def get_config(
     config.TASK_CONFIG = get_task_config(config.BASE_TASK_CONFIG_PATH)
     if opts:
         config.CMD_TRAILING_OPTS = config.CMD_TRAILING_OPTS + opts
+        for idx, o in enumerate(config.CMD_TRAILING_OPTS):
+            if idx % 2 != 0:
+                continue
+            try:
+                # Hacky way of checking if it's in the config yet
+                eval('config.' + o)
+            except:
+                keys = o.split('.')
+                dest_dict = config
+                for k in keys[:-1]:
+                    dest_dict = dest_dict[k]
+                keys1 = ''.join(['["' + k + '"]' for k in keys])
+                keys2 = ''.join(['["' + k + '"]' for k in keys[:-1]])
+                a = eval('config' + keys2)
+                a[keys[-1]] = config.CMD_TRAILING_OPTS[idx + 1]
+                print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
+                print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
+                print('NOT IN CONFIG, NOW ADDING:', o)
+                print('config' + keys1, '=', config.CMD_TRAILING_OPTS[idx + 1])
+                print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
+                print('!!!!!!!!!!!!!!!!!!!!!!!!!!\n')
+
+
+        config.set_new_allowed(True)
         config.merge_from_list(config.CMD_TRAILING_OPTS)
 
     if config.NUM_PROCESSES != -1:
