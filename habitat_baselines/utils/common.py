@@ -214,7 +214,7 @@ def poll_checkpoint_folder(
     assert os.path.isdir(checkpoint_folder), (
         f"invalid checkpoint folder " f"path {checkpoint_folder}"
     )
-    print('\ncheckpoint_folder: ', checkpoint_folder,'\n')
+    print('\ncheckpoint_folder: ', checkpoint_folder, '\n')
     models_paths = list(
         filter(os.path.isfile, glob.glob(checkpoint_folder + "/*"))
     )

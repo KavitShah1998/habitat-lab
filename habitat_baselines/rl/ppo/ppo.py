@@ -48,12 +48,21 @@ class PPO(nn.Module):
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
 
-        self.optimizer = optim.Adam(
-            list(filter(lambda p: p.requires_grad, actor_critic.parameters())),
-            lr=lr,
-            eps=eps,
-        )
-        self.device = next(actor_critic.parameters()).device
+        try:
+            self.optimizer = optim.Adam(
+                list(filter(lambda p: p.requires_grad, actor_critic.parameters())),
+                lr=lr,
+                eps=eps,
+            )
+        except ValueError:
+            print("PPO optimizer setup failed. Training won't work.")
+
+        try:
+            self.device = next(actor_critic.parameters()).device
+        except StopIteration:
+            print('No trainable parameters found. PPO device set to cpu.')
+            self.device = torch.device("cpu")
+
         self.use_normalized_advantage = use_normalized_advantage
 
     def forward(self, *x):

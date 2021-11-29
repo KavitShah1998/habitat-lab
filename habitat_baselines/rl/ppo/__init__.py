@@ -6,6 +6,7 @@
 
 from habitat_baselines.rl.ppo.policy import Net, PointNavBaselinePolicy, Policy
 from habitat_baselines.rl.ppo.moe import NavGazeMixtureOfExperts
+from habitat_baselines.rl.ppo.sequential import SequentialExperts
 from habitat_baselines.rl.ppo.ppo import PPO
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "Net",
     "PointNavBaselinePolicy",
     "NavGazeMixtureOfExperts",
+    "SequentialExperts",
 ]

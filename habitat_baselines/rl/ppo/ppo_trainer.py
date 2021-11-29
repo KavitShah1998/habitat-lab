@@ -498,7 +498,15 @@ class PPOTrainer(BaseRLTrainer):
                 if self.is_simple_env():
                     self.envs.async_step_at(index_env, act.item())
                 else:
-                    self.envs.async_step_at(index_env, {"action": act})
+                    self.envs.async_step_at(
+                        index_env,
+                        {
+                            "action": {
+                                "action": act,
+                                "percent_done": self.percent_done(),
+                            },
+                        },
+                    )
 
         self.env_time += time.time() - t_step_env
 
@@ -1038,11 +1046,11 @@ class PPOTrainer(BaseRLTrainer):
         try:
             self.agent.load_state_dict(ckpt_dict["state_dict"])
         except:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-            print('WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!')
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         self.actor_critic = self.agent.actor_critic
 
@@ -1196,6 +1204,14 @@ class PPOTrainer(BaseRLTrainer):
                     step_data = self.actor_critic.choose_mix_of_actions(
                         actions
                     )
+                elif self.config.RL.POLICY.name == "SequentialExperts":
+                    step_data = [
+                        {
+                            "action": a.numpy(),
+                            "skill_type": self.actor_critic.current_skill_type,
+                        }
+                        for a in actions.to(device="cpu")
+                    ]
                 else:
                     step_data = [
                         {"action": a.numpy()} for a in actions.to(device="cpu")
@@ -1207,6 +1223,8 @@ class PPOTrainer(BaseRLTrainer):
             observations, rewards_l, dones, infos = [
                 list(x) for x in zip(*outputs)
             ]
+            if self.config.RL.POLICY.name == "SequentialExperts":
+                self.actor_critic.next_skill_type = infos[0]["next_skill_type"]
             batch = batch_obs(
                 observations,
                 device=self.device,

@@ -12,6 +12,8 @@ import numpy as np
 from habitat import get_config as get_task_config
 from habitat.config import Config as CN
 
+import time
+
 DEFAULT_CONFIG_DIR = "configs/"
 CONFIG_FILE_SEPARATOR = ","
 # -----------------------------------------------------------------------------
@@ -240,23 +242,33 @@ def get_config(
                 continue
             try:
                 # Hacky way of checking if it's in the config yet
-                eval('config.' + o)
+                eval("config." + o)
             except:
-                keys = o.split('.')
+                keys = o.split(".")
                 dest_dict = config
                 for k in keys[:-1]:
                     dest_dict = dest_dict[k]
-                keys1 = ''.join(['["' + k + '"]' for k in keys])
-                keys2 = ''.join(['["' + k + '"]' for k in keys[:-1]])
-                a = eval('config' + keys2)
-                a[keys[-1]] = config.CMD_TRAILING_OPTS[idx + 1]
-                print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
-                print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
-                print('NOT IN CONFIG, NOW ADDING:', o)
-                print('config' + keys1, '=', config.CMD_TRAILING_OPTS[idx + 1])
-                print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
-                print('!!!!!!!!!!!!!!!!!!!!!!!!!!\n')
+                keys1 = "".join(['["' + k + '"]' for k in keys])
+                keys2 = "".join(['["' + k + '"]' for k in keys[:-1]])
+                a = eval("config" + keys2)
+                override_value = config.CMD_TRAILING_OPTS[idx + 1]
 
+                # Turn string to list if that's what it represents
+                if isinstance(
+                    override_value, str
+                ) and override_value.startswith("["):
+                    override_value = eval(override_value)
+
+                a[keys[-1]] = override_value
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print("NOT IN CONFIG, NOW ADDING:", o)
+                print("config" + keys1, "=", override_value)
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+
+                # Pause to help ensure the user sees the overrides
+                time.sleep(1)
 
         config.set_new_allowed(True)
         config.merge_from_list(config.CMD_TRAILING_OPTS)
