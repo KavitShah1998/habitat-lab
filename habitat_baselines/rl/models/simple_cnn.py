@@ -4,13 +4,27 @@ import numpy as np
 import torch
 from torch import nn as nn
 
-RGB_KEYS = ['rgb', 'arm_rgb', '3rd_rgb']
-DEPTH_KEYS = ['depth', 'arm_depth', '3rd_depth']
+RGB_KEYS = ["rgb", "arm_rgb", "3rd_rgb"]
+DEPTH_KEYS = ["depth", "arm_depth", "3rd_depth", "arm_depth_bbox"]
+ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
+HEAD_VISION_KEYS = ["depth", "rgb"]
+
+
+def reject_obs_key(key, head_only, arm_only):
+    assert not head_only or not arm_only  # Can't be both head and arm only
+    return (
+        head_only
+        and key in ARM_VISION_KEYS
+        or arm_only
+        and key in HEAD_VISION_KEYS
+    )
+
 
 class SimpleCNN(nn.Module):
     r"""A Simple 3-Conv CNN followed by a fully connected layer
 
-    Takes in observations and produces an embedding of the rgb and/or depth components
+    Takes in observations and produces an embedding of the rgb and/or depth
+    components
 
     Args:
         observation_space: The observation_space of the agent
@@ -21,7 +35,9 @@ class SimpleCNN(nn.Module):
         self,
         observation_space,
         output_size,
-        force_blind
+        force_blind,
+        head_only=False,
+        arm_only=False,
     ):
         super().__init__()
         if force_blind:
@@ -35,14 +51,18 @@ class SimpleCNN(nn.Module):
         rgb_shape = None
         self._n_input_rgb = 0
         for k in RGB_KEYS:
-            if k in observation_space.spaces:
+            if k in observation_space.spaces and not reject_obs_key(
+                k, head_only, arm_only
+            ):
                 self._n_input_rgb += 3
                 rgb_shape = observation_space.spaces[k].shape[:2]
                 self.use_rgb_keys.append(k)
         depth_shape = None
         self._n_input_depth = 0
         for k in DEPTH_KEYS:
-            if k in observation_space.spaces:
+            if k in observation_space.spaces and not reject_obs_key(
+                k, head_only, arm_only
+            ):
                 self._n_input_depth += 1
                 depth_shape = observation_space.spaces[k].shape[:2]
                 self.use_depth_keys.append(k)
@@ -54,13 +74,9 @@ class SimpleCNN(nn.Module):
         self._cnn_layers_stride = [(4, 4), (2, 2), (1, 1)]
 
         if self._n_input_rgb > 0:
-            cnn_dims = np.array(
-                rgb_shape, dtype=np.float32
-            )
+            cnn_dims = np.array(rgb_shape, dtype=np.float32)
         elif self._n_input_depth > 0:
-            cnn_dims = np.array(
-                depth_shape, dtype=np.float32
-            )
+            cnn_dims = np.array(depth_shape, dtype=np.float32)
 
         if self.is_blind:
             self.cnn = nn.Sequential()
