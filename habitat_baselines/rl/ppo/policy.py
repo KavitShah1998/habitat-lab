@@ -27,6 +27,18 @@ import rlf.rl.utils as rutils
 from habitat.core.spaces import ActionSpace
 from orp.env_aux import TargetPointGoalGPSAndCompassSensor
 
+"""
+At minimum, need to support:
+- depth (yes)
+- depth+bbox (yes)
+- head-depth (yes)
+- head-depth+depth+bbox (NO!!!)
+"""
+
+
+ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
+HEAD_VISION_KEYS = ["depth", "rgb"]
+
 
 class Policy(nn.Module, metaclass=abc.ABCMeta):
     def __init__(self, net, action_space):
@@ -77,7 +89,6 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
             action = distribution.sample()
 
         action_log_probs = distribution.log_probs(action)
-
 
         # print('self.prev_actions', prev_actions)
         # print('self.masks', masks)
@@ -131,7 +142,7 @@ class PointNavBaselinePolicy(Policy):
         observation_space: spaces.Dict,
         action_space,
         hidden_size: int = 512,
-        **kwargs
+        **kwargs,
     ):
         # print(observation_space)
         # print(action_space)
@@ -235,13 +246,48 @@ class PointNavBaselineNet(Net):
             [observation_space.spaces[n].shape[0] for n in self.fuse_states]
         )
 
-        self._hidden_size = hidden_size
-        self._goal_hidden_size = goal_hidden_size
+        head_visual_inputs = 0
+        arm_visual_inputs = 0
+        for obs_key in observation_space.spaces.keys():
+            if obs_key in ARM_VISION_KEYS:
+                arm_visual_inputs += 1
+            elif obs_key in HEAD_VISION_KEYS:
+                head_visual_inputs += 1
+        self.num_cnns = min(1, head_visual_inputs) + min(1, arm_visual_inputs)
 
-        self.visual_encoder = SimpleCNN(
-            observation_space, hidden_size, force_blind
-        )
+        self._hidden_size = hidden_size
+
+        if self.num_cnns == 1:
+            self.visual_encoder = SimpleCNN(
+                observation_space, hidden_size, force_blind
+            )
+        elif self.num_cnns == 2:
+            # We are using both cameras; make a CNN for each
+            head_obs_space, arm_obs_space = [
+                spaces.Dict(
+                    {
+                        k: v
+                        for k, v in observation_space.spaces.items()
+                        if k not in obs_key_blacklist
+                    }
+                )
+                for obs_key_blacklist in [ARM_VISION_KEYS, HEAD_VISION_KEYS]
+            ]
+            # Head CNN
+            self.visual_encoder = SimpleCNN(
+                head_obs_space, hidden_size, force_blind, head_only=True
+            )
+            # Arm CNN
+            self.visual_encoder2 = SimpleCNN(
+                arm_obs_space, hidden_size, force_blind, arm_only=True
+            )
+        else:
+            raise RuntimeError(
+                f"Only supports 1 or 2 CNNs not {self.num_cnns}"
+            )
+
         state_dim = self._n_input_goal
+        self._goal_hidden_size = goal_hidden_size
         if self._goal_hidden_size != 0:
             self.goal_encoder = nn.Sequential(
                 nn.Linear(self._n_input_goal, self._goal_hidden_size),
@@ -252,7 +298,7 @@ class PointNavBaselineNet(Net):
             state_dim = self._goal_hidden_size
 
         self.state_encoder = build_rnn_state_encoder(
-            (0 if self.is_blind else self._hidden_size) + state_dim,
+            (0 if self.is_blind else hidden_size * self.num_cnns) + state_dim,
             self._hidden_size,
         )
 
@@ -302,10 +348,17 @@ class PointNavBaselineNet(Net):
 
         if not self.is_blind:
             perception_embed = self.visual_encoder(observations)
-            if self._goal_hidden_size == 0:
-                x = [perception_embed] + x
-            else:
-                x = [perception_embed, x]
+            if self.num_cnns == 1:
+                if self._goal_hidden_size == 0:
+                    x = [perception_embed] + x
+                else:
+                    x = [perception_embed, x]
+            elif self.num_cnns == 2:
+                perception_embed_2 = self.visual_encoder2(observations)
+                if self._goal_hidden_size == 0:
+                    x = [perception_embed, perception_embed_2] + x
+                else:
+                    x = [perception_embed, perception_embed_2, x]
 
         x_out = torch.cat(x, dim=1)
         x_out, rnn_hidden_states = self.state_encoder(

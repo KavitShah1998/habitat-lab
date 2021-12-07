@@ -59,6 +59,8 @@ import rlf.rl.utils as rutils
 from rlf.exp_mgr.viz_utils import save_mp4
 import torch.nn as nn
 
+from habitat.core.utils import try_cv2_import
+cv2 = try_cv2_import()
 
 @baseline_registry.register_trainer(name="ddppo")
 @baseline_registry.register_trainer(name="ppo")
@@ -151,6 +153,7 @@ class PPOTrainer(BaseRLTrainer):
         self.actor_critic = policy.from_config(
             self.config, observation_space, self.envs.action_spaces[0]
         )
+        print("Actor-critic architecture:", self.actor_critic)
         self.obs_space = observation_space
         self.actor_critic.to(self.device)
 
