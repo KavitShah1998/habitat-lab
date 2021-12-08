@@ -55,8 +55,11 @@ from habitat_baselines.utils.common import (
 )
 from habitat_baselines.utils.env_utils import construct_envs
 
-import rlf.rl.utils as rutils
-from rlf.exp_mgr.viz_utils import save_mp4
+try:
+    import rlf.rl.utils as rutils
+    from rlf.exp_mgr.viz_utils import save_mp4
+except:
+    pass
 import torch.nn as nn
 
 from habitat.core.utils import try_cv2_import

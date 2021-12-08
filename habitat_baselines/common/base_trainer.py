@@ -25,10 +25,13 @@ from habitat_baselines.utils.common import (
 import sys
 sys.path.insert(0, './')
 import numpy as np
-from orp.dataset import OrpNavDatasetV0
-from orp.sim.simulator import OrpSim
-from orp.env_aux import *
-from orp.controllers.base_ctrls import *
+try:
+    from orp.dataset import OrpNavDatasetV0
+    from orp.sim.simulator import OrpSim
+    from orp.env_aux import *
+    from orp.controllers.base_ctrls import *
+except:
+    pass
 import math
 import subprocess
 

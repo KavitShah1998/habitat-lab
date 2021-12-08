@@ -33,8 +33,11 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
     build_rnn_state_encoder,
 )
 from habitat_baselines.rl.ppo import Net, Policy
-import rlf.rl.utils as rutils
-from orp.env_aux import TargetPointGoalGPSAndCompassSensor
+try:
+    import rlf.rl.utils as rutils
+    from orp.env_aux import TargetPointGoalGPSAndCompassSensor
+except:
+    pass
 from habitat.core.spaces import ActionSpace
 
 @baseline_registry.register_policy

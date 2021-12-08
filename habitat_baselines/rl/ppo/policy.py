@@ -22,10 +22,9 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
 from habitat_baselines.rl.models.simple_cnn import SimpleCNN
 from habitat_baselines.utils.common import CategoricalNet
 
-import rlf.policies.utils as putils
-import rlf.rl.utils as rutils
+# import rlf.policies.utils as putils
+# import rlf.rl.utils as rutils
 from habitat.core.spaces import ActionSpace
-from orp.env_aux import TargetPointGoalGPSAndCompassSensor
 
 """
 At minimum, need to support:
@@ -39,6 +38,37 @@ At minimum, need to support:
 ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
 HEAD_VISION_KEYS = ["depth", "rgb"]
 
+FixedNormal = torch.distributions.Normal
+log_prob_normal = FixedNormal.log_prob
+FixedNormal.log_probs = lambda self, actions: log_prob_normal(
+    self, actions
+).sum(-1, keepdim=True)
+normal_entropy = FixedNormal.entropy
+FixedNormal.entropy = lambda self: normal_entropy(self).sum(-1)
+FixedNormal.mode = lambda self: self.mean
+
+
+class DiagGaussian(nn.Module):
+    def __init__(self, num_inputs, num_outputs):
+        super().__init__()
+
+        def weight_init(module, weight_init, bias_init, gain=1):
+            weight_init(module.weight.data, gain=gain)
+            bias_init(module.bias.data)
+            return module
+
+        init_ = lambda m: weight_init(
+            m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0)
+        )
+        self.fc_mean = init_(nn.Linear(num_inputs, num_outputs))
+        self.logstd = nn.Parameter(torch.zeros(1, num_outputs))
+
+    def forward(self, x):
+        action_mean = self.fc_mean(x)
+
+        action_logstd = self.logstd.expand_as(action_mean)
+        return FixedNormal(action_mean, action_logstd.exp())
+
 
 class Policy(nn.Module, metaclass=abc.ABCMeta):
     def __init__(self, net, action_space):
@@ -50,10 +80,9 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
                 self.action_distribution = CategoricalNet(
                     self.net.output_size, action_space.n
                 )
-                # self.action_distribution = putils.get_def_dist((self.net.output_size,), spaces.Discrete(action_space.n))
             else:
-                self.action_distribution = putils.get_def_dist(
-                    (self.net.output_size,), action_space
+                self.action_distribution = DiagGaussian(
+                    self.net.output_size, action_space.shape[0]
                 )
 
             self.critic = CriticHead(self.net.output_size)
@@ -215,11 +244,11 @@ class PointNavBaselineNet(Net):
         # exit()
 
         if (
-            TargetPointGoalGPSAndCompassSensor.cls_uuid
+            "target_point_goal_gps_and_compass_sensor"
             in observation_space.spaces
         ):
             self._n_input_goal = observation_space.spaces[
-                TargetPointGoalGPSAndCompassSensor.cls_uuid
+                "target_point_goal_gps_and_compass_sensor"
             ].shape[0]
         elif (
             IntegratedPointGoalGPSAndCompassSensor.cls_uuid
@@ -318,9 +347,9 @@ class PointNavBaselineNet(Net):
 
     def forward(self, observations, rnn_hidden_states, prev_actions, masks):
         target_encoding = None
-        if TargetPointGoalGPSAndCompassSensor.cls_uuid in observations:
+        if "target_point_goal_gps_and_compass_sensor" in observations:
             target_encoding = observations[
-                TargetPointGoalGPSAndCompassSensor.cls_uuid
+                "target_point_goal_gps_and_compass_sensor"
             ]
         elif IntegratedPointGoalGPSAndCompassSensor.cls_uuid in observations:
             target_encoding = observations[
