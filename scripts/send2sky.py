@@ -29,9 +29,9 @@ def main():
     jsons_dir = osp.join(exp_dir, 'jsons')
 
     print('Sending checkpoints')
-    scp(ckpts_dir, osp.join(skynet_dst_dir, 'checkpoints'))
+    # scp(ckpts_dir, osp.join(skynet_dst_dir, 'checkpoints'))
     print('Sending jsons')
-    scp(jsons_dir, osp.join(skynet_dst_dir, 'jsons'))
+    # scp(jsons_dir, osp.join(skynet_dst_dir, 'jsons'))
 
     # Copy over eval scripts
     eval_scripts = glob.glob(osp.join(exp_dir, 'slurm_files/*eval.sh'))
@@ -40,14 +40,14 @@ def main():
 
     # Edit the eval scripts
     replace_dict = {
-        '/private/home/naokiyokoyama/qq/exp/ig/': SKYNET_BASE_DIR,
+        '/private/home/naokiyokoyama/qq/exp/ig': SKYNET_BASE_DIR,
         '--partition=learnlab': (
             '--partition=overcap\n'
             '#SBATCH --account=overcap\n'
             '#SBATCH --exclude=bmo,walle,alexa'
         ),
         '\n#SBATCH --time=72:00:00': '\n',
-        '\n#SBATCH --time=72:00:00': '\n',
+        '\n#SBATCH --mem-per-cpu=5GB': '\n',
     }
     for p in glob.glob('tmp/slurm_files/*eval.sh'):
         with open(p) as f:
@@ -64,10 +64,9 @@ def main():
 if __name__=='__main__':
     try:
         main()
+        shutil.rmtree('tmp')
     except:
         e = sys.exc_info()[0]
         print('Deleting ./tmp')
         shutil.rmtree('tmp')
         print(f"Error: {e}")
-
-    shutil.rmtree('tmp')\

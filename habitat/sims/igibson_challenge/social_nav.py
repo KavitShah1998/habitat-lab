@@ -37,6 +37,10 @@ import magnum as mn
 import math
 import numpy as np
 
+MAX_ANG = np.deg2rad(90)
+MAX_LIN = 0.50
+TIME_STEP = 0.1
+from habitat_sim.gfx import LightInfo, LightPositionModel
 @registry.register_simulator(name="iGibsonSocialNav")
 class iGibsonSocialNav(HabitatSim):
     def __init__(self, config: Config) -> None:
@@ -50,12 +54,12 @@ class iGibsonSocialNav(HabitatSim):
         self.num_people = config.get('NUM_PEOPLE', 1)
         self.social_nav = True
         self.interactive_nav = False
-        
-        # People params
-        self.people_mask = config.get('PEOPLE_MASK', False)
-        self.lin_speed = config.PEOPLE_LIN_SPEED
-        self.ang_speed = np.deg2rad(config.PEOPLE_ANG_SPEED)
-        self.time_step = config.TIME_STEP
+
+        self.set_light_setup(
+            [LightInfo(
+                vector=[2.0,2.0,2.0, 0.0],
+                color=[5.0,5.0,5.0], model=LightPositionModel.Camera)]
+        )
 
 
     def reset_people(self):
@@ -63,6 +67,11 @@ class iGibsonSocialNav(HabitatSim):
         obj_templates_mgr = self.get_object_template_manager()
 
         # Check if humans have been erased (sim was reset)
+        self.set_light_setup(
+            [LightInfo(
+                vector=[0.0, 0.0, 1.0, 0.0],
+                color=[1.6, 1.6, 1.4], model=LightPositionModel.Camera)]
+        )
         if not self.get_existing_object_ids():
             self.person_ids = []
             for _ in range(self.num_people):
@@ -116,10 +125,7 @@ class iGibsonSocialNav(HabitatSim):
             spf = ShortestPathFollowerv2(
                 sim=self,
                 object_id=person_id,
-                waypoints=waypoints,
-                lin_speed=self.lin_speed,
-                ang_speed=self.ang_speed,
-                time_step=self.time_step,
+                waypoints=waypoints
             )
             self.people.append(spf)
 
@@ -175,10 +181,7 @@ class ShortestPathFollowerv2:
         self,
         sim,
         object_id,
-        waypoints,
-        lin_speed,
-        ang_speed,
-        time_step,
+        waypoints
     ):
         self._sim = sim
         self.object_id = object_id
@@ -194,13 +197,9 @@ class ShortestPathFollowerv2:
         self.done_turning = False
         self.current_position = waypoints[0]
 
-        # People params
-        self.lin_speed = lin_speed
-        self.ang_speed = ang_speed
-        self.time_step = time_step
-        self.max_linear_vel = np.random.rand()*(0.1)+self.lin_speed-0.1
+        self.max_linear_vel = np.random.rand()*(0.1)+MAX_LIN-0.1
 
-    def step(self):
+    def step(self, time_step=TIME_STEP):
         waypoint_idx = self.next_waypoint_idx % len(self.waypoints)
         waypoint = np.array(self.waypoints[waypoint_idx])
 
@@ -223,11 +222,11 @@ class ShortestPathFollowerv2:
             direction = 1 if theta_diff < 0 else -1
 
             # If next turn would normally overshoot, turn just the right amount
-            if self.ang_speed*self.time_step*1.2 >= abs(theta_diff):
-                angular_velocity = -theta_diff / self.time_step
+            if MAX_ANG*time_step*1.2 >= abs(theta_diff):
+                angular_velocity = -theta_diff / time_step
                 self.done_turning = True
             else:
-                angular_velocity = self.ang_speed*direction
+                angular_velocity = MAX_ANG*direction
 
             self.vel_control.linear_velocity = np.zeros(3)
             self.vel_control.angular_velocity = np.array([
@@ -240,8 +239,8 @@ class ShortestPathFollowerv2:
             distance = np.sqrt(
                 (translation[0]-waypoint[0])**2+(translation[2]-waypoint[2])**2
             )
-            if self.max_linear_vel*self.time_step*1.2 >= distance:
-                linear_velocity = distance / self.time_step
+            if self.max_linear_vel*time_step*1.2 >= distance:
+                linear_velocity = distance / time_step
                 self.done_turning = False
                 self.next_waypoint_idx += 1
             else:
@@ -257,7 +256,7 @@ class ShortestPathFollowerv2:
             translation
         )
         rigid_state = self.vel_control.integrate_transform(
-            self.time_step, rigid_state
+            time_step, rigid_state
         )
 
         self._sim.set_translation(rigid_state.translation, self.object_id)

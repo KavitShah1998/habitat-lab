@@ -17,6 +17,10 @@ splits = {
     "all": val_eps+test_eps,
 }
 
+TIME_FILE = '/private/home/naokiyokoyama/qq/rrt_star/icra.json'
+with open(TIME_FILE) as f:
+    EP2TIME = json.load(f)
+STEP_PERIOD = 0.1
 
 def main():
     parser = argparse.ArgumentParser()
@@ -24,21 +28,49 @@ def main():
     args = parser.parse_args()
 
     json_dir = args.json_dir
+    if json_dir.endswith('/'):
+        json_dir = json_dir[:-1]
 
     best_ckpt_id, test_set_succ = get_best_ckpt(json_dir)
-    print(f"Best ckpt ID: {best_ckpt_id}")
+    ckpt_path = osp.realpath(
+        osp.join(
+            osp.dirname(osp.dirname(osp.dirname(json_dir))),
+            f'checkpoints/{osp.basename(json_dir)}/ckpt.{best_ckpt_id}.pth'
+        )
+    )
+    print(f"Best ckpt ID: {best_ckpt_id} ({ckpt_path})")
     print(f"Test set avg succ: {test_set_succ * 100:.2f}%")
 
 
 # Get mean value filtered by split
 def get_mean_val(key, stats, eps):
-    return np.mean(
-        [
-            v[key]
-            for k, v in stats.items()
-            if k != "agg_stats" and int(k) in eps
-        ]
-    )
+    use_sct = key == 'sct'
+
+    def steps2sct(ep_id, v, steps):
+        succ = v['success']
+        comp_time = EP2TIME[str(ep_id)]
+        agent_time = steps*STEP_PERIOD
+        sct = succ * (comp_time/max(agent_time, comp_time))
+
+        return sct
+
+    if not use_sct:
+        mean = np.mean(
+            [
+                v[key]
+                for k, v in stats.items()
+                if k != "agg_stats" and int(k) in eps
+            ]
+        )
+    else:
+        mean = np.mean(
+            [
+                steps2sct(k, v, v['num_steps'])
+                for k, v in stats.items()
+                if k != "agg_stats" and int(k) in eps
+            ]
+        )
+    return mean
 
 
 def get_best_ckpt(
@@ -48,6 +80,7 @@ def get_best_ckpt(
     max_ckpt_id=None,
     val_split="val",
     test_split="test",
+    eval_key=None,
 ):
 
     # Gather paths to all json files
@@ -80,9 +113,12 @@ def get_best_ckpt(
 
     best_ckpt_id = max(all_succ_vals)[1]
 
+    if eval_key is None:
+        eval_key = max_key
+
     # Use best checkpoint to calculate avg succ on test set
     test_set_succ = get_mean_val(
-        "success", all_j_data[best_ckpt_id], splits[test_split]
+        eval_key, all_j_data[best_ckpt_id], splits[test_split]
     )
 
     return best_ckpt_id, test_set_succ

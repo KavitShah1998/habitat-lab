@@ -419,7 +419,13 @@ class PPOTrainer(BaseRLTrainer):
         Returns:
             dict containing checkpoint info
         """
-        return torch.load(checkpoint_path, *args, **kwargs)
+        time0 = time.time()
+        while time.time() < time0 + 60*5:
+            try:
+                return torch.load(checkpoint_path, *args, **kwargs)
+            except:
+                pass
+        exit("Couldn't load checkpoint.")
 
     METRICS_BLACKLIST = {"top_down_map", "collisions.is_collision"}
 
@@ -944,10 +950,17 @@ class PPOTrainer(BaseRLTrainer):
 
         # Skip this checkpoint if a json result file for it already exists
         if self.config.JSON_DIR != '':
+            # End the script if all checkpoints have been evaluated
+            if len(
+                glob.glob(os.path.join(self.config.JSON_DIR, '*.json'))
+            ) == self.config.NUM_CHECKPOINTS:
+                exit()
+
             json_path = os.path.join(
                 self.config.JSON_DIR,
                 f"{os.path.basename(checkpoint_path[:-4]).replace('.', '_')}.json",
             )
+
             if os.path.isfile(json_path):
                 return
 
