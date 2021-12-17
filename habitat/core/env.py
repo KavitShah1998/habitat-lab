@@ -258,7 +258,7 @@ class Env:
             action = {"action": action}
 
         observations = self.task.step(
-            action=action, episode=self.current_episode, **kwargs
+            action=action, episode=self.current_episode
         )
 
         self._task.measurements.update_measures(

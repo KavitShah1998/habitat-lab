@@ -1,12 +1,22 @@
 import os
+import glob
+import time
 import torch
 import tqdm
+import wandb
+import argparse
+import yaml 
+import socket
+import numpy as np
 
 from habitat_baselines.common.base_trainer import BaseRLTrainer
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.rl.behavioral_cloning.agents import (
     D4Teacher,
     GaussianStudent,
+)
+from habitat_baselines.rl.behavioral_cloning.behavioral_cloning_v5 import (
+    continuous_to_step_actions
 )
 from habitat_baselines.common.env_utils import construct_envs
 from habitat_baselines.config.default import get_config
@@ -17,14 +27,15 @@ from habitat_baselines.common.utils import (
 
 from habitat import Config, logger
 
-CHECKPOINT_PATH = '/coc/pskynet3/nyokoyama3/learnbycheat/exp2_sgd/checkpoints/6000_0.1655_0.0798.ckpt'
+import habitat
 
-@baseline_registry.register_trainer(name="run_teacher")
-class RunTeacher(BaseRLTrainer):
+# import habitat.tasks.nav.cont_ctrl
+
+@baseline_registry.register_trainer(name="eval_student")
+class EvalStudent(BaseRLTrainer):
     supported_tasks = ["Nav-v0"]
 
-    def __init__(self, config=None):
-        logger.info(f"env config: {config}")
+    def __init__(self, config, ckpt_path):
 
         config.defrost()
         config.TASK_CONFIG.DATASET.SPLIT = config.EVAL.SPLIT
@@ -34,9 +45,31 @@ class RunTeacher(BaseRLTrainer):
         self.device = torch.device("cuda", int(os.environ["SLURM_LOCALID"]))
 
         self.student = GaussianStudent(config.RL)
+        
+        # self.student.actor_critic.load_state_dict(
+        #     {
+        #         k[len("actor_critic.") :]: v
+        #         for k, v in torch.load(ckpt_path)["state_dict"].items()
+        #     }
+        # )
         self.student.actor_critic.load_state_dict(
-             torch.load(CHECKPOINT_PATH)['state_dict']
+            torch.load(ckpt_path)["state_dict"]
         )
+        config.defrost()
+        # Use continuous action space
+        config.TASK_CONFIG.TASK.ACTIONS.CONT_MOVE = habitat.config.Config()
+        config.TASK_CONFIG.TASK.ACTIONS.CONT_MOVE.TYPE = "ContMove"
+        config.TASK_CONFIG.SIMULATOR.ACTION_SPACE_CONFIG = "ContCtrlSpace"
+        config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS[1] = 'CONT_MOVE'
+
+        config.TASK_CONFIG.DATASET.DATA_PATH = '/nethome/nyokoyama3/n/datasets/pointnav_gibson/v1_splitup/{split}/{split}.json.gz'
+        config.NUM_PROCESSES = 140
+        # config.NUM_PROCESSES = 14
+        config.freeze()
+        logger.info(f"env config: {config}")
+
+        self.ckpt_path = ckpt_path
+
     def run(self):
         self.envs = construct_envs(config, get_env_class(config.ENV_NAME))
 
@@ -66,7 +99,7 @@ class RunTeacher(BaseRLTrainer):
             if total_num_eps < number_of_episodes:
                 logger.warn(
                     f"Config specified {number_of_episodes} episodes"
-                    ", dataset only has {total_num_eps}."
+                    f", dataset only has {total_num_eps}."
                 )
                 logger.warn(f"Evaluating with {total_num_eps} instead.")
                 number_of_episodes = total_num_eps
@@ -74,6 +107,7 @@ class RunTeacher(BaseRLTrainer):
         pbar = tqdm.tqdm(total=number_of_episodes)
         self.student.actor_critic.eval()
         stats_episodes = dict()  # dict of dicts that stores stats per episode
+        all_spl = []
         while (
             len(stats_episodes) < number_of_episodes
             and self.envs.num_envs > 0
@@ -96,16 +130,7 @@ class RunTeacher(BaseRLTrainer):
 
             prev_actions.copy_(actions)
 
-            step_actions = []
-            for a in actions:
-                a_tanh = torch.tanh(a)
-                lin_vel, ang_vel = a_tanh[0].item(), a_tanh[1].item()
-                d_action = min(
-                    [(0,1.,0.), (1,-1.,0.), (2,1.,1.), (3,1.,-1.)],
-                    key=lambda x:(lin_vel-x[1])**2+(ang_vel-x[2])**2
-                )[0]
-                print('d_action',d_action)
-                step_actions.append(d_action)
+            step_actions = continuous_to_step_actions(actions)
 
             outputs = self.envs.step(step_actions)
 
@@ -141,9 +166,7 @@ class RunTeacher(BaseRLTrainer):
                             current_episodes[i].episode_id,
                         )
                     ] = episode_stats
-                    # print('SPL:', infos[i]['spl'])
-                    # print(infos[i])
-
+                    all_spl.append(infos[i]['spl'])
             (
                 self.envs,
                 test_recurrent_hidden_states,
@@ -162,11 +185,70 @@ class RunTeacher(BaseRLTrainer):
                 batch,
                 rgb_frames=[[] for _ in range(self.config.NUM_PROCESSES)],
             )
+        
+        all_succ = [1. if i > 0. else 0. for i in all_spl]
+        avg_spl = np.mean(all_spl)
+        avg_succ = np.mean(all_succ)
+        wandb_data = {
+            'avg_succ': avg_succ,
+            'avg_spl': avg_spl,
+        }
+        wandb_step = int(os.path.basename(self.ckpt_path)[:-len('.pth')])
+        wandb.log(wandb_data, step=wandb_step*76)
+        print(wandb_data)
+
         self.envs.close()
 
 if __name__ == '__main__':
-    config = get_config(
-        'habitat_baselines/config/pointnav/behavioral_cloning.yaml'
-    )
-    d = RunTeacher(config)
-    d.run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('run_name', help='run_name')
+    parser.add_argument('config_file', help='config yaml file')
+    args = parser.parse_args()
+
+    config = get_config(args.config_file)
+    exp_name = os.path.basename(args.config_file)[:-len('.yaml')]
+
+    with open(args.config_file) as f:
+        bc_config = yaml.load(f)['BC']
+
+    bc_config['skynet_node'] = socket.gethostname()
+
+    evaluated_ckpts = set()
+
+    wandb.login()
+    with wandb.init(
+        project='irl_project_v3_eval',
+        config=bc_config,
+        # mode="disabled"
+    ):
+        wandb.run.name = args.run_name
+        all_ckpts = glob.glob(os.path.join(
+            config.CHECKPOINT_FOLDER,
+            '*.pth'
+        ))
+        all_ckpts = sorted(
+            all_ckpts,
+            key=lambda x: int(os.path.basename(x)[:-len('.pth')])
+        )
+        for ckpt_path in all_ckpts:
+            print(f'\n\n\nEVALUATING {ckpt_path}\n\n\n')
+            evaluated_ckpts.add(ckpt_path)
+            es = EvalStudent(config, ckpt_path)
+            es.run()
+        # print(f'Monitoring {config.CHECKPOINT_FOLDER}')
+        # while True:
+        #     all_ckpts = glob.glob(os.path.join(
+        #         config.CHECKPOINT_FOLDER,
+        #         '*.pth'
+        #     ))
+        #     all_ckpts = list(filter(
+        #         lambda x: x not in evaluated_ckpts,
+        #         all_ckpts
+        #     ))
+        #     for ckpt_path in sorted(all_ckpts):
+        #         print(f'\n\n\nEVALUATING {ckpt_path}\n\n\n')
+        #         evaluated_ckpts.add(ckpt_path)
+        #         es = EvalStudent(config, ckpt_path)
+        #         es.run()
+        #         del es
+        #     time.sleep(10)

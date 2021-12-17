@@ -11,7 +11,10 @@ from habitat_baselines.rl.ddppo.policy.resnet_policy import (
 class D4Teacher:
     def __init__(self, rl_cfg: Config) -> None:
         # Assume just 1 GPU from slurm
-        self.device = torch.device("cuda", int(os.environ["SLURM_LOCALID"]))
+        self.device = torch.device(
+            "cuda",
+            int(os.environ["SLURM_LOCALID"])
+        )
 
         depth_256_space = Dict({
             'depth': Box(low=0., high=1., shape=(256,256,1)),
@@ -48,7 +51,10 @@ class D4Teacher:
 class GaussianStudent:
     def __init__(self, rl_cfg: Config) -> None:
         # Assume just 1 GPU from slurm
-        self.device = torch.device("cuda", int(os.environ["SLURM_LOCALID"]))
+        self.device = torch.device(
+            "cuda",
+            int(os.environ["SLURM_LOCALID"])
+        )
 
         depth_256_space = Dict({
             'depth': Box(low=0., high=1., shape=(256,256,1)),
@@ -89,8 +95,6 @@ class GaussianStudent:
         )
         for param in self.actor_critic.net.visual_encoder.parameters():
             param.requires_grad_(False)
-
-
 
 if __name__ == '__main__':
     from habitat_baselines.config.default import get_config

@@ -291,11 +291,9 @@ class EmbodiedTask:
 
         return observations
 
-    def step(self, action: Union[int, Dict[str, Any]], episode: Type[Episode], **kwargs):
-        if "action_args" not in kwargs or kwargs["action_args"] is None:
+    def step(self, action: Union[int, Dict[str, Any]], episode: Type[Episode]):
+        if "action_args" not in action or action["action_args"] is None:
             action["action_args"] = {}
-        else:
-            action["action_args"] = kwargs["action_args"]
         action_name = action["action"]
         if isinstance(action_name, (int, np.integer)):
             action_name = self.get_action_name(action_name)

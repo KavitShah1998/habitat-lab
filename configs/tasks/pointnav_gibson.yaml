@@ -5,8 +5,8 @@ SIMULATOR:
   FORWARD_STEP_SIZE: 0.25
   TURN_ANGLE: 10
   AGENT_0:
-    HEIGHT: 0.88
-    RADIUS: 0.18
+    # HEIGHT: 0.88
+    # RADIUS: 0.18
     SENSORS: ['DEPTH_SENSOR']
   HABITAT_SIM_V0:
     GPU_DEVICE_ID: 0
@@ -41,4 +41,5 @@ DATASET:
   SPLIT: train
   # DATA_PATH: data/{split}/{split}.json.gz
   # DATA_PATH: /nethome/nyokoyama3/n/datasets/pointnav_gibson/v2/{split}/{split}.json.gz
-  DATA_PATH: /nethome/nyokoyama3/n/datasets/pointnav_gibson/v2_bc/{split}/{split}.json.gz
+  # DATA_PATH: /nethome/nyokoyama3/n/datasets/pointnav_gibson/v2_bc/{split}/{split}.json.gz
+  DATA_PATH: /srv/datasets/habitat-sim-datasets/pointnav/gibson/v1/{split}/{split}.json.gz

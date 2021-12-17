@@ -1,3 +1,5 @@
+PROJECT_NAME = 'irl_critic_loss'
+
 import os
 import argparse
 import tqdm
@@ -24,8 +26,6 @@ from habitat_baselines.common.utils import batch_obs
 
 import habitat
 from habitat import Config, logger
-
-# import habitat.tasks.nav.cont_ctrl
 
 torch.backends.cudnn.enabled = False
 
@@ -113,7 +113,7 @@ def lin_ang_to_step_action(lin_vel, ang_vel):
 class BehavioralCloning(BaseRLTrainer):
     supported_tasks = ["Nav-v0"]
 
-    def __init__(self, config):
+    def __init__(self, config, debug=False):
         torch.backends.cudnn.enabled = False
         logger.info(f"env config: {config}")
 
@@ -133,9 +133,9 @@ class BehavioralCloning(BaseRLTrainer):
         config.TASK_CONFIG.SIMULATOR.ACTION_SPACE_CONFIG = "ContCtrlSpace"
         config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS[1] = 'CONT_MOVE'
 
-        # Uncomment for debugging
-        # config.BC.NUM_PROCESSES = 4
-        # config.TASK_CONFIG.DATASET.SPLIT = config.EVAL.SPLIT
+        if debug:
+            config.BC.NUM_PROCESSES = 4
+            config.TASK_CONFIG.DATASET.SPLIT = config.EVAL.SPLIT
 
         config.NUM_PROCESSES = config.BC.NUM_PROCESSES
         config.freeze()
@@ -203,7 +203,7 @@ class BehavioralCloning(BaseRLTrainer):
 
             with torch.no_grad():
                 (
-                    _,
+                    teacher_value,
                     teacher_actions,
                     _,
                     teacher_hidden_states,
@@ -216,7 +216,7 @@ class BehavioralCloning(BaseRLTrainer):
                 )
 
             (
-                _,
+                student_value,
                 student_actions,
                 _,
                 student_hidden_states,
@@ -229,6 +229,12 @@ class BehavioralCloning(BaseRLTrainer):
             )
 
             # Loss and update
+            value_loss += F.mse_loss(
+                teacher_value, 
+                student_value,
+                reduce='mean'
+            )
+
             student_actions_tanh = torch.tanh(student_actions)
             teacher_labels = discrete_to_continuous(
                 teacher_actions,
@@ -306,23 +312,12 @@ class BehavioralCloning(BaseRLTrainer):
                 )
                 step_actions = discrete_to_step_actions(teacher_actions)
             else:
-                # teacher_prev_actions.copy_(teacher_actions)
                 teacher_actions_converted = continuous_to_discrete(
                     student_actions,
                     # device=self.device
-                    device=torch.device('cpu')
                 )
                 teacher_prev_actions.copy_(teacher_actions_converted)
-
-                # student_prev_actions.copy_(
-                #     discrete_to_continuous(
-                #         teacher_actions,
-                #         device=self.device
-                #     )
-                # )
                 student_prev_actions.copy_(student_actions.detach().clone())
-
-                # step_actions = discrete_to_step_actions(teacher_actions)
                 step_actions = continuous_to_step_actions(student_actions)
 
             outputs = self.envs.step(step_actions)
@@ -367,11 +362,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('run_name', help='run_name')
     parser.add_argument('config_file', help='config yaml file')
+    parser.add_argument('-d','--debug' action='store_true')
     args = parser.parse_args()
 
     config = get_config(args.config_file)
     exp_name = os.path.basename(args.config_file)[:-len('.yaml')]
-    bc = BehavioralCloning(config)
+    bc = BehavioralCloning(config, debug=args.debug)
 
     with open(args.config_file) as f:
         bc_config = yaml.load(f)['BC']
@@ -379,10 +375,19 @@ if __name__ == '__main__':
     bc_config['skynet_node'] = socket.gethostname()
 
     wandb.login()
-    with wandb.init(
-        project='irl_project_v3',
-        # mode='disabled',
-        config=bc_config
-    ):
-        wandb.run.name = args.run_name
-        bc.train()
+
+    if args.debug:
+        with wandb.init(
+            project=PROJECT_NAME,
+            mode='disabled',
+            config=bc_config
+        ):
+            wandb.run.name = args.run_name
+            bc.train()
+    else:
+        with wandb.init(
+            project=PROJECT_NAME,
+            config=bc_config
+        ):
+            wandb.run.name = args.run_name
+            bc.train()

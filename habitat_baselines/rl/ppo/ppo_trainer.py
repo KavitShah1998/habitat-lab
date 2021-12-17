@@ -236,18 +236,21 @@ class PPOTrainer(BaseRLTrainer):
         
         step_actions = []
         for action_index in action_value_tuples:
+            lin_vel, ang_vel = np.tanh(
+                action_index[0].item()), np.tanh(action_index[1].item()
+            )
+            lin_vel = (lin_vel-1.)/2.*0.25
+            ang_vel *= np.pi/180*10
             step_action = {
-                'action': 'CONT_MOVE',
-                'action_args': 
-                    {
-                        'move': action_index[0],
-                        'turn': action_index[1],
-                        'distribution' : self._action_distribution,
-                        'allow_sliding': self._allow_sliding,
-                        'step_reward_decay': step_reward_decay,
-                        'max_linear_speed' : self._max_linear_speed,
-                        'max_angular_speed': self._max_angular_speed
+                'action': { 
+                    'action': 'CONT_MOVE',
+                    'action_args': {
+                        'linear_velocity': lin_vel,
+                        'angular_velocity': ang_vel,
+                        'time_step' : 1.0,
+                        'allow_sliding': True,
                     }
+                }
             }
             step_actions.append(step_action)
 

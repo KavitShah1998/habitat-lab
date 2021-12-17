@@ -582,13 +582,15 @@ class SPL(Measure):
 
         self._previous_position = current_position
 
-        self._metric = ep_success * (
-            self._start_end_episode_distance
-            / max(
-                self._start_end_episode_distance, self._agent_episode_distance
+        try:
+            self._metric = ep_success * (
+                self._start_end_episode_distance
+                / max(
+                    self._start_end_episode_distance, self._agent_episode_distance
+                )
             )
-        )
-
+        except:
+            self._metric = 0
 
 @registry.register_measure
 class SCT(SPL):
