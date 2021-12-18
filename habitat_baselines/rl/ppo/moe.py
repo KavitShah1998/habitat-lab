@@ -231,11 +231,11 @@ class NavGazeMixtureOfExperts(Policy):
             self.gaze_action.to(device="cpu"),
         ):
             use_nav, use_gaze = mix_action.numpy()
-            if use_nav > 0.0 or True:
+            if use_nav > 0.0:
                 base_step_action = base_action.numpy()
             else:
                 base_step_action = np.zeros(2, dtype=np.float32)
-            if use_gaze > 0.0 and False:
+            if use_gaze > 0.0:
                 gaze_step_action = gaze_action.numpy()
             else:
                 gaze_step_action = np.zeros(8, dtype=np.float32)

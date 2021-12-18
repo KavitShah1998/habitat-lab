@@ -20,54 +20,13 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
     build_rnn_state_encoder,
 )
 from habitat_baselines.rl.models.simple_cnn import SimpleCNN
-from habitat_baselines.utils.common import CategoricalNet
+from habitat_baselines.utils.common import CategoricalNet, GaussianNet
 
-# import rlf.policies.utils as putils
-# import rlf.rl.utils as rutils
 from habitat.core.spaces import ActionSpace
-
-"""
-At minimum, need to support:
-- depth (yes)
-- depth+bbox (yes)
-- head-depth (yes)
-- head-depth+depth+bbox (NO!!!)
-"""
 
 
 ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
 HEAD_VISION_KEYS = ["depth", "rgb"]
-
-FixedNormal = torch.distributions.Normal
-log_prob_normal = FixedNormal.log_prob
-FixedNormal.log_probs = lambda self, actions: log_prob_normal(
-    self, actions
-).sum(-1, keepdim=True)
-normal_entropy = FixedNormal.entropy
-FixedNormal.entropy = lambda self: normal_entropy(self).sum(-1)
-FixedNormal.mode = lambda self: self.mean
-
-
-class DiagGaussian(nn.Module):
-    def __init__(self, num_inputs, num_outputs):
-        super().__init__()
-
-        def weight_init(module, weight_init, bias_init, gain=1):
-            weight_init(module.weight.data, gain=gain)
-            bias_init(module.bias.data)
-            return module
-
-        init_ = lambda m: weight_init(
-            m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0)
-        )
-        self.fc_mean = init_(nn.Linear(num_inputs, num_outputs))
-        self.logstd = nn.Parameter(torch.zeros(1, num_outputs))
-
-    def forward(self, x):
-        action_mean = self.fc_mean(x)
-
-        action_logstd = self.logstd.expand_as(action_mean)
-        return FixedNormal(action_mean, action_logstd.exp())
 
 
 class Policy(nn.Module, metaclass=abc.ABCMeta):
@@ -81,7 +40,7 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
                     self.net.output_size, action_space.n
                 )
             else:
-                self.action_distribution = DiagGaussian(
+                self.action_distribution = GaussianNet(
                     self.net.output_size, action_space.shape[0]
                 )
 
@@ -100,12 +59,6 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
         masks,
         deterministic=False,
     ):
-        # print('batched_obs["depth"]', observations["depth"])
-        # print(
-        #     'batched_obs["target_point_goal_gps_and_compass_sensor"]',
-        #     observations["target_point_goal_gps_and_compass_sensor"],
-        # )
-        # print('self.hidden_state', rnn_hidden_states)
         features, rnn_hidden_states = self.net(
             observations, rnn_hidden_states, prev_actions, masks
         )
@@ -119,12 +72,6 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
 
         action_log_probs = distribution.log_probs(action)
 
-        # print('self.prev_actions', prev_actions)
-        # print('self.masks', masks)
-        # print('action', action)
-        # self.count += 1
-        # if self.count == 2:
-        #     exit()
         return value, action, action_log_probs, rnn_hidden_states
 
     def get_value(self, observations, rnn_hidden_states, prev_actions, masks):
@@ -173,12 +120,6 @@ class PointNavBaselinePolicy(Policy):
         hidden_size: int = 512,
         **kwargs,
     ):
-        # print(observation_space)
-        # print(action_space)
-        # print(hidden_size)
-        # print(kwargs)
-        # [print(9) for _ in range(30)]
-        # exit()
         super().__init__(
             PointNavBaselineNet(  # type: ignore
                 observation_space=observation_space,
@@ -193,7 +134,6 @@ class PointNavBaselinePolicy(Policy):
         cls, config: Config, observation_space: spaces.Dict, action_space
     ):
         goal_hidden_size = config.RL.PPO.get("goal_hidden_size", 0)
-        # [print(config.RL.POLICY.fuse_states) for _ in range(30)]
         return cls(
             observation_space=observation_space,
             action_space=action_space,
@@ -370,7 +310,6 @@ class PointNavBaselineNet(Net):
             x = []
         else:
             x = [target_encoding]
-        # print('target_encoding', target_encoding)
 
         if self._goal_hidden_size != 0:
             x = self.goal_encoder(torch.cat(x, dim=1))
@@ -388,6 +327,8 @@ class PointNavBaselineNet(Net):
                     x = [perception_embed, perception_embed_2] + x
                 else:
                     x = [perception_embed, perception_embed_2, x]
+        else:
+            x = [x]
 
         x_out = torch.cat(x, dim=1)
         x_out, rnn_hidden_states = self.state_encoder(
