@@ -63,7 +63,9 @@ except:
 import torch.nn as nn
 
 from habitat.core.utils import try_cv2_import
+
 cv2 = try_cv2_import()
+
 
 @baseline_registry.register_trainer(name="ddppo")
 @baseline_registry.register_trainer(name="ppo")
@@ -158,6 +160,9 @@ class PPOTrainer(BaseRLTrainer):
         )
         print("Actor-critic architecture:", self.actor_critic)
         self.obs_space = observation_space
+        print("Observation space:")
+        for k, v in observation_space.spaces.items():
+            print(k, v.shape)
         self.actor_critic.to(self.device)
 
         if (
@@ -345,6 +350,13 @@ class PPOTrainer(BaseRLTrainer):
         self.rollouts.to(self.device)
 
         observations = self.envs.reset()
+        if hasattr(self.actor_critic, "transform_obs"):
+            observations = self.actor_critic.transform_obs(
+                observations,
+                masks=torch.zeros(
+                    self.envs.num_envs, 1, dtype=torch.bool, device=self.device
+                ),
+            )
         batch = batch_obs(
             observations, device=self.device, cache=self._obs_batching_cache
         )
@@ -1198,7 +1210,8 @@ class PPOTrainer(BaseRLTrainer):
                     test_recurrent_hidden_states,
                     prev_actions,
                     not_done_masks,
-                    deterministic=True,
+                    # deterministic=True,
+                    deterministic=False,
                 )
 
                 prev_actions.copy_(actions)
