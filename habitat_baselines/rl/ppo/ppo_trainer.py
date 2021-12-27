@@ -501,30 +501,25 @@ class PPOTrainer(BaseRLTrainer):
         profiling_wrapper.range_pop()  # compute actions
 
         t_step_env = time.time()
-        # TODO: Figure out how to step
 
-        if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
-            for index_env, act in zip(
-                range(env_slice.start, env_slice.stop),
-                self.actor_critic.choose_mix_of_actions(actions),
-            ):
-                self.envs.async_step_at(index_env, act)
-        else:
-            for index_env, act in zip(
-                range(env_slice.start, env_slice.stop), actions.unbind(0)
-            ):
-                if self.is_simple_env():
-                    self.envs.async_step_at(index_env, act.item())
-                else:
-                    self.envs.async_step_at(
-                        index_env,
-                        {
-                            "action": {
-                                "action": act,
-                                "percent_done": self.percent_done(),
-                            },
-                        },
+        for index_env, act in zip(
+            range(env_slice.start, env_slice.stop), actions.unbind(0)
+        ):
+            if self.is_simple_env():
+                self.envs.async_step_at(index_env, act.item())
+            else:
+                if hasattr(self.actor_critic, "action_to_dict"):
+                    step_action = self.actor_critic.action_to_dict(
+                        act, index_env, percent_done=self.percent_done()
                     )
+                else:
+                    step_action = {
+                        "action": {
+                            "action": act,
+                            "percent_done": self.percent_done(),
+                        },
+                    }
+                self.envs.async_step_at(index_env, step_action)
 
         self.env_time += time.time() - t_step_env
 
@@ -553,6 +548,15 @@ class PPOTrainer(BaseRLTrainer):
         observations, rewards_l, dones, infos = [
             list(x) for x in zip(*outputs)
         ]
+        not_done_masks = torch.tensor(
+            [[not done] for done in dones],
+            dtype=torch.bool,
+            device=self.current_episode_reward.device,
+        )
+        if hasattr(self.actor_critic, "transform_obs"):
+            observations = self.actor_critic.transform_obs(
+                observations, masks=not_done_masks
+            )
 
         self.env_time += time.time() - t_step_env
 
@@ -568,12 +572,6 @@ class PPOTrainer(BaseRLTrainer):
                 device=self.current_episode_reward.device,
             )
             rewards = rewards.unsqueeze(1)
-
-            not_done_masks = torch.tensor(
-                [[not done] for done in dones],
-                dtype=torch.bool,
-                device=self.current_episode_reward.device,
-            )
             done_masks = torch.logical_not(not_done_masks)
 
             self.current_episode_reward[env_slice] += rewards

@@ -123,6 +123,14 @@ class GaussianNet(nn.Module):
         return CustomNormal(mu, std)
 
 
+def initialized_linear(in_features, out_features, gain, bias=0):
+    layer = nn.Linear(in_features, out_features)
+    nn.init.orthogonal_(layer.weight, gain=gain)
+    nn.init.constant_(layer.bias, bias)
+
+    return layer
+
+
 def linear_decay(epoch: int, total_num_updates: int) -> float:
     r"""Returns a multiplicative factor for linear value decay
 

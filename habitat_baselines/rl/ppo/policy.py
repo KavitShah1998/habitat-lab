@@ -5,8 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 import abc
 
-import torch
 from gym import spaces
+import numpy as np
+import torch
 from torch import nn as nn
 
 from habitat.config import Config
@@ -20,7 +21,11 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
     build_rnn_state_encoder,
 )
 from habitat_baselines.rl.models.simple_cnn import SimpleCNN
-from habitat_baselines.utils.common import CategoricalNet, GaussianNet
+from habitat_baselines.utils.common import (
+    CategoricalNet,
+    GaussianNet,
+    initialized_linear,
+)
 
 from habitat.core.spaces import ActionSpace
 
@@ -180,41 +185,12 @@ class PointNavBaselineNet(Net):
     ):
         super().__init__()
 
-        # print(observation_space.spaces.keys())
-        # exit()
-
-        if (
-            "target_point_goal_gps_and_compass_sensor"
-            in observation_space.spaces
-        ):
-            self._n_input_goal = observation_space.spaces[
-                "target_point_goal_gps_and_compass_sensor"
-            ].shape[0]
-        elif (
-            IntegratedPointGoalGPSAndCompassSensor.cls_uuid
-            in observation_space.spaces
-        ):
-            self._n_input_goal = observation_space.spaces[
-                IntegratedPointGoalGPSAndCompassSensor.cls_uuid
-            ].shape[0]
-        elif PointGoalSensor.cls_uuid in observation_space.spaces:
-            self._n_input_goal = observation_space.spaces[
-                PointGoalSensor.cls_uuid
-            ].shape[0]
-        elif ImageGoalSensor.cls_uuid in observation_space.spaces:
-            goal_observation_space = spaces.Dict(
-                {"rgb": observation_space.spaces[ImageGoalSensor.cls_uuid]}
-            )
-            self.goal_visual_encoder = SimpleCNN(
-                goal_observation_space, hidden_size, False
-            )
-            self._n_input_goal = hidden_size
-
         self.fuse_states = fuse_states
         self._n_input_goal = sum(
             [observation_space.spaces[n].shape[0] for n in self.fuse_states]
         )
 
+        # Construct CNNs
         head_visual_inputs = 0
         arm_visual_inputs = 0
         for obs_key in observation_space.spaces.keys():
@@ -255,19 +231,26 @@ class PointNavBaselineNet(Net):
                 f"Only supports 1 or 2 CNNs not {self.num_cnns}"
             )
 
-        state_dim = self._n_input_goal
+        # 2-layer MLP for non-visual inputs
         self._goal_hidden_size = goal_hidden_size
         if self._goal_hidden_size != 0:
             self.goal_encoder = nn.Sequential(
-                nn.Linear(self._n_input_goal, self._goal_hidden_size),
+                initialized_linear(
+                    self._n_input_goal, self._goal_hidden_size, gain=np.sqrt(2)
+                ),
                 nn.ReLU(),
-                nn.Linear(self._goal_hidden_size, self._goal_hidden_size),
+                initialized_linear(
+                    self._goal_hidden_size,
+                    self._goal_hidden_size,
+                    gain=np.sqrt(2),
+                ),
                 nn.ReLU(),
             )
-            state_dim = self._goal_hidden_size
 
+        # Final RNN layer
         self.state_encoder = build_rnn_state_encoder(
-            (0 if self.is_blind else hidden_size * self.num_cnns) + state_dim,
+            (0 if self.is_blind else hidden_size * self.num_cnns)
+            + self._goal_hidden_size,
             self._hidden_size,
         )
 
@@ -286,50 +269,25 @@ class PointNavBaselineNet(Net):
         return self.state_encoder.num_recurrent_layers
 
     def forward(self, observations, rnn_hidden_states, prev_actions, masks):
-        target_encoding = None
-        if "target_point_goal_gps_and_compass_sensor" in observations:
-            target_encoding = observations[
-                "target_point_goal_gps_and_compass_sensor"
-            ]
-        elif IntegratedPointGoalGPSAndCompassSensor.cls_uuid in observations:
-            target_encoding = observations[
-                IntegratedPointGoalGPSAndCompassSensor.cls_uuid
-            ]
-        elif PointGoalSensor.cls_uuid in observations:
-            target_encoding = observations[PointGoalSensor.cls_uuid]
-        elif ImageGoalSensor.cls_uuid in observations:
-            image_goal = observations[ImageGoalSensor.cls_uuid]
-            target_encoding = self.goal_visual_encoder({"rgb": image_goal})
+        # Convert double to float if found
+        for k, v in observations.items():
+            if v.dtype is torch.float64:
+                observations[k] = v.type(torch.float32)
 
-        if len(self.fuse_states) > 0:
-            target_encoding = torch.cat(
-                [observations[k] for k in self.fuse_states], dim=-1
-            )
+        x = []
 
-        if target_encoding is None:
-            x = []
-        else:
-            x = [target_encoding]
-
-        if self._goal_hidden_size != 0:
-            x = self.goal_encoder(torch.cat(x, dim=1))
-
+        # Visual observations
         if not self.is_blind:
-            perception_embed = self.visual_encoder(observations)
-            if self.num_cnns == 1:
-                if self._goal_hidden_size == 0:
-                    x = [perception_embed] + x
-                else:
-                    x = [perception_embed, x]
-            elif self.num_cnns == 2:
-                perception_embed_2 = self.visual_encoder2(observations)
-                if self._goal_hidden_size == 0:
-                    x = [perception_embed, perception_embed_2] + x
-                else:
-                    x = [perception_embed, perception_embed_2, x]
-        else:
-            x = [x]
+            x.append(self.visual_encoder(observations))
+            if self.num_cnns == 2:
+                x.append(self.visual_encoder2(observations))
 
+        # Non-visual observations
+        if len(self.fuse_states) > 0:
+            non_vis_obs = [observations[k] for k in self.fuse_states]
+            x.append(self.goal_encoder(torch.cat(non_vis_obs, dim=-1)))
+
+        # Final RNN layer
         x_out = torch.cat(x, dim=1)
         x_out, rnn_hidden_states = self.state_encoder(
             x_out, rnn_hidden_states, masks

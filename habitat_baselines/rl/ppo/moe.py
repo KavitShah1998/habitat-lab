@@ -1,27 +1,34 @@
 from habitat_baselines.rl.ppo.policy import (
     Policy,
     PointNavBaselineNet,
-    PointNavBaselinePolicy,
 )
-
-import torch
+from habitat_baselines.rl.ppo.sequential import (
+    ckpt_to_policy,
+    get_blank_params,
+)
+from functools import partial
 from gym import spaces
-
-from habitat.config import Config
-
-from habitat_baselines.common.baseline_registry import baseline_registry
-
 from gym.spaces import Box, Dict
 import numpy as np
+import torch
 
+from habitat.config import Config
+from habitat_baselines.common.baseline_registry import baseline_registry
+from habitat_baselines.utils.common import batch_obs, ObservationBatchingCache
 
 """
+
 Focus first on NavGaze MoE....
 """
 
+GAZE_ACTIONS = 4  # 4 controllable joints
+NAV_ACTIONS = 2  # linear and angular vel
+EXPERT_NAV_UUID = "expert_nav"
+EXPERT_GAZE_UUID = "expert_gaze"
+
 
 @baseline_registry.register_policy
-class NavGazeMixtureOfExperts(Policy):
+class NavGazeMixtureOfExpertsRes(Policy):
     def __init__(
         self,
         observation_space: spaces.Dict,
@@ -32,8 +39,18 @@ class NavGazeMixtureOfExperts(Policy):
         fuse_states,
         num_environments,
         hidden_size: int = 512,
+        *args,
         **kwargs,
     ):
+        # Add expert actions to the observation space and fuse_states
+        observation_space.spaces[EXPERT_NAV_UUID] = Box(
+            -1.0, 1.0, (NAV_ACTIONS,)
+        )
+        observation_space.spaces[EXPERT_GAZE_UUID] = Box(
+            -1.0, 1.0, (GAZE_ACTIONS,)
+        )
+        fuse_states.extend([EXPERT_NAV_UUID, EXPERT_GAZE_UUID])
+
         # Instantiate MoE's own policy
         super().__init__(
             PointNavBaselineNet(
@@ -46,88 +63,30 @@ class NavGazeMixtureOfExperts(Policy):
             action_space,
         )
 
-        # Load navigation expert
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        print(nav_checkpoint_path)
-        exit()
-        nav_checkpoint = torch.load(nav_checkpoint_path)
-        nav_config = nav_checkpoint["config"]
+        # Store tensors into CPU for now
+        self.device = torch.device("cpu")
 
-        # We need to remove the arm depth camera from navigation
-        nav_obs_space = Dict(observation_space.spaces.copy())
-        nav_obs_space.spaces.pop("arm_depth")
-        self.expert_nav_policy = PointNavBaselinePolicy.from_config(
-            config=nav_config,
-            observation_space=nav_obs_space,
-            action_space=Box(shape=(2,), low=-1, high=1, dtype=np.float32),
-        )
+        # Load pre-trained experts
+        nav_ckpt = torch.load(nav_checkpoint_path, map_location=self.device)
+        gaze_ckpt = torch.load(gaze_checkpoint_path, map_location=self.device)
+        self.expert_nav_policy = ckpt_to_policy(nav_ckpt, observation_space)
+        self.expert_gaze_policy = ckpt_to_policy(gaze_ckpt, observation_space)
 
-        data_dict = nav_checkpoint["state_dict"]
-        self.expert_nav_policy.load_state_dict(
-            {
-                k[len("actor_critic.") :]: torch.tensor(v)
-                for k, v in data_dict.items()
-                if k.startswith("actor_critic.")
-            }
+        self.nav_rnn_hx, _, self.nav_prev_actions = get_blank_params(
+            nav_ckpt["config"],
+            self.expert_nav_policy,
+            self.device,
+            num_envs=num_environments,
         )
-
-        # Load gaze expert
-        gaze_checkpoint = torch.load(gaze_checkpoint_path)
-        self.expert_gaze_policy = PointNavBaselinePolicy.from_config(
-            config=gaze_checkpoint["config"],
-            observation_space=observation_space,
-            action_space=Box(shape=(8,), low=-1, high=1, dtype=np.float32),
-        )
-        data_dict = gaze_checkpoint["state_dict"]
-        self.expert_gaze_policy.load_state_dict(
-            {
-                k[len("actor_critic.") :]: torch.tensor(v)
-                for k, v in data_dict.items()
-                if k.startswith("actor_critic.")
-            }
-        )
-
-        # Need to keep track of hidden states and prev_actions for each expert
-        self.nav_rnn_hidden_states = torch.zeros(
-            num_environments,
-            1,  # num_recurrent_layers
-            512,  # ppo_cfg.hidden_size,
-            dtype=torch.float32,
-        )
-        self.gaze_rnn_hidden_states = torch.zeros(
-            num_environments,
-            1,  # num_recurrent_layers
-            512,  # ppo_cfg.hidden_size,
-            dtype=torch.float32,
-        )
-        self.nav_prev_actions = torch.zeros(
-            num_environments,
-            2,
-            dtype=torch.float32,
-        )
-        self.gaze_prev_actions = torch.zeros(
-            num_environments,
-            8,
-            dtype=torch.float32,  # ppo_cfg.hidden_size,
+        self.gaze_rnn_hx, _, self.gaze_prev_actions = get_blank_params(
+            gaze_ckpt["config"],
+            self.expert_gaze_policy,
+            self.device,
+            num_envs=num_environments,
         )
         self.nav_action = None
         self.gaze_action = None
-
-    # Overload .to() method
-    def to(self, device, *args):
-        super().to(device, *args)
-        self.nav_rnn_hidden_states = self.nav_rnn_hidden_states.to(device)
-        self.gaze_rnn_hidden_states = self.gaze_rnn_hidden_states.to(device)
-        self.nav_prev_actions = self.nav_prev_actions.to(device)
-        self.gaze_prev_actions = self.gaze_prev_actions.to(device)
-        self.expert_nav_policy = self.expert_nav_policy.to(device)
-        self.expert_gaze_policy = self.expert_gaze_policy.to(device)
+        self._obs_batching_cache = ObservationBatchingCache()
 
     @classmethod
     def from_config(
@@ -140,7 +99,7 @@ class NavGazeMixtureOfExperts(Policy):
         We need an action for each expert. Above 0 means execute. Below means don't.
         """
 
-        action_space = Box(-1.0, 1.0, (2,))
+        action_space = Box(-1.0, 1.0, (GAZE_ACTIONS + NAV_ACTIONS,))
 
         return cls(
             observation_space=observation_space,
@@ -153,102 +112,128 @@ class NavGazeMixtureOfExperts(Policy):
             hidden_size=config.RL.PPO.hidden_size,
         )
 
-    """
-    act() needs to be changed so that it actually passes the observations into the
-    experts and gets their actions and updates their hidden states.
-    """
+    def to(self, device, *args):
+        super().to(device, *args)
+        self.nav_rnn_hx = self.nav_rnn_hx.to(device)
+        self.gaze_rnn_hx = self.gaze_rnn_hx.to(device)
+        self.nav_prev_actions = self.nav_prev_actions.to(device)
+        self.gaze_prev_actions = self.gaze_prev_actions.to(device)
+        self.expert_nav_policy = self.expert_nav_policy.to(device)
+        self.expert_gaze_policy = self.expert_gaze_policy.to(device)
+        self.device = device
 
-    def act(
-        self,
-        observations,
-        rnn_hidden_states,
-        prev_actions,
-        masks,
-        deterministic=False,
-    ):
-        value, action, action_log_probs, rnn_hidden_states = super().act(
-            observations,
-            rnn_hidden_states,
-            prev_actions,
-            masks,
-            deterministic=False,
-        )
+    def transform_obs(self, observations, masks):
+        """
+        Inserts expert actions into the observations
 
-        (
-            _,
-            self.nav_action,
-            _,
-            self.nav_rnn_hidden_states,
-        ) = self.expert_nav_policy.act(
-            observations,
-            self.nav_rnn_hidden_states,
-            self.nav_prev_actions,
-            # masks,
-            torch.ones_like(masks, device='cuda:0'),
-            deterministic=True,
+        :param observations: list of dictionaries
+        :param masks: torch tensor.bool
+        :return: observations with expert actions
+        """
+        start_cuda = torch.cuda.memory_allocated()
+        batch = batch_obs(
+            observations, device=self.device, cache=self._obs_batching_cache
         )
-        # print("observations[0]['obj_start_sensor']", observations[0]['obj_start_sensor'])
-        # print('self.nav_action', self.nav_action)
-        # exit()
+        masks_device = (
+            masks.to(self.device) if masks.device != self.device else masks
+        )
+        with torch.no_grad():
+            (
+                _,
+                self.nav_action,
+                _,
+                self.nav_rnn_hx,
+            ) = self.expert_nav_policy.act(
+                batch, self.nav_rnn_hx, self.nav_prev_actions, masks_device
+            )
+            (
+                _,
+                self.gaze_action,
+                _,
+                self.gaze_rnn_hx,
+            ) = self.expert_gaze_policy.act(
+                batch, self.gaze_rnn_hx, self.gaze_prev_actions, masks_device
+            )
         self.nav_prev_actions.copy_(self.nav_action)
-
-        (
-            _,
-            self.gaze_action,
-            _,
-            self.gaze_rnn_hidden_states,
-        ) = self.expert_gaze_policy.act(
-            observations,
-            self.gaze_rnn_hidden_states,
-            self.gaze_prev_actions,
-            masks,
-            deterministic=True,
-        )
         self.gaze_prev_actions.copy_(self.gaze_action)
 
-        return value, action, action_log_probs, rnn_hidden_states
+        # Move expert actions to CPU (for observation/action_arg insertion)
+        self.nav_action = self.nav_action.detach().cpu()
+        self.gaze_action = self.gaze_action.detach().cpu()
 
-    def choose_mix_of_actions(self, actions):
-        """
-        Given a NavGaze policy, reformat the MoE action to actually incorporate expert
-        actions
+        # Insert into each observation; batch_obs loads these into gpu later
+        num_envs = len(observations)
+        for index_env in range(num_envs):
+            observations[index_env][EXPERT_NAV_UUID] = self.nav_action[
+                index_env
+            ].numpy()
+            observations[index_env][EXPERT_GAZE_UUID] = self.gaze_action[
+                index_env
+            ].numpy()
 
-        :param actions:
-        :return: step_data, similar to below
-        [{'action': array([-1.360452  ,  1.7130293 , -0.706296  , -1.5175911 , -2.1926935 ,
-           -0.96006346], dtype=float32)}]
+        return observations
 
-        arm_ac = action[0][:3].cpu().numpy()
-        grip_ac = None if not self.place_success else 0
-        base_ac = action[0][-2:].cpu().numpy()
-        step_data = [{'action': a.numpy()} for a in actions.to(device="cpu")]
-        """
+    def action_to_dict(self, action, index_env, **kwargs):
+        # Merge mixer's actions with experts'
+        gaze_action = self.gaze_action[index_env]
+        nav_action = self.nav_action[index_env]
+        experts_action = torch.cat([gaze_action, nav_action])
+        step_action = experts_action + action
+        # step_action = experts_action
 
-        step_data = []
-        for mix_action, base_action, gaze_action in zip(
-            actions.to(device="cpu"),
-            self.nav_action.to(device="cpu"),
-            self.gaze_action.to(device="cpu"),
-        ):
-            use_nav, use_gaze = mix_action.numpy()
-            if use_nav > 0.0:
-                base_step_action = base_action.numpy()
-            else:
-                base_step_action = np.zeros(2, dtype=np.float32)
-            if use_gaze > 0.0:
-                gaze_step_action = gaze_action.numpy()
-            else:
-                gaze_step_action = np.zeros(8, dtype=np.float32)
-
-            step_data.append(
-                {
-                    "action": np.concatenate(
-                        [gaze_step_action, base_step_action]
-                    )
-                }
-            )
+        # Add expert actions as action_args for reward calculation in RLEnv
+        expert_args = {
+            EXPERT_GAZE_UUID: gaze_action,
+            EXPERT_NAV_UUID: nav_action,
+        }
+        step_data = {
+            "action": {"action": step_action, **expert_args, **kwargs}
+        }
 
         return step_data
+
+    # def choose_mix_of_actions(self, actions):
+    #     """
+    #     Given a NavGaze policy, reformat the MoE action to actually incorporate expert
+    #     actions
+    #
+    #     :param actions:
+    #     :return: step_data, similar to below
+    #     [{'action': array([-1.360452  ,  1.7130293 , -0.706296  , -1.5175911 , -2.1926935 ,
+    #        -0.96006346], dtype=float32)}]
+    #
+    #     arm_ac = action[0][:3].cpu().numpy()
+    #     grip_ac = None if not self.place_success else 0
+    #     base_ac = action[0][-2:].cpu().numpy()
+    #     step_data = [{'action': a.numpy()} for a in actions.to(device="cpu")]
+    #     """
+    #
+    #     step_data = []
+    #     for mix_action, base_action, self.gaze_action in zip(
+    #         actions.to(device="cpu"),
+    #         self.nav_action.to(device="cpu"),
+    #         self.gaze_action.to(device="cpu"),
+    #     ):
+    #         use_nav, use_gaze = mix_action.numpy()
+    #         if use_nav > 0.0:
+    #             base_step_action = base_action.numpy()
+    #         else:
+    #             base_step_action = np.zeros(2, dtype=np.float32)
+    #         if use_gaze > 0.0:
+    #             gaze_step_action = self.gaze_action.numpy()
+    #         else:
+    #             gaze_step_action = np.zeros(8, dtype=np.float32)
+    #
+    #         step_data.append(
+    #             {
+    #                 "action": np.concatenate(
+    #                     [gaze_step_action, base_step_action]
+    #                 )
+    #             }
+    #         )
+    #
+    #     return step_data
+
     #
     # def choose_single_mix_of_actions(self, action):
     #     """
@@ -272,7 +257,7 @@ class NavGazeMixtureOfExperts(Policy):
     #     else:
     #         base_step_action = np.zeros(2, dtype=np.float32)
     #     if use_gaze > 0.0:
-    #         gaze_step_action = gaze_action.numpy()
+    #         gaze_step_action = self.gaze_action.numpy()
     #     else:
     #         gaze_step_action = np.zeros(8, dtype=np.float32)
     #
