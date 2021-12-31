@@ -63,6 +63,9 @@ class NavGazeMixtureOfExpertsRes(Policy):
             action_space,
         )
 
+        # Get model params before experts get loaded in
+        self.model_params = [p for p in self.parameters() if p.requires_grad]
+
         # Store tensors into CPU for now
         self.device = torch.device("cpu")
 
@@ -177,9 +180,10 @@ class NavGazeMixtureOfExpertsRes(Policy):
         # Merge mixer's actions with experts'
         gaze_action = self.gaze_action[index_env]
         nav_action = self.nav_action[index_env]
-        experts_action = torch.cat([gaze_action, nav_action])
-        step_action = experts_action + action
+        # experts_action = torch.cat([gaze_action, nav_action])
+        # step_action = experts_action + action
         # step_action = experts_action
+        step_action = action.to(torch.device("cpu"))
 
         # Add expert actions as action_args for reward calculation in RLEnv
         expert_args = {

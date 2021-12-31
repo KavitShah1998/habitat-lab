@@ -83,14 +83,7 @@ class CustomNormal(torch.distributions.normal.Normal):
         return super().rsample(sample_shape)
 
     def log_probs(self, actions):
-        ret = (
-            super()
-            .log_prob(actions)
-            .view(actions.size(0), -1)
-            .sum(-1)
-            .unsqueeze(-1)
-        )
-        return ret
+        return super().log_prob(actions).sum(-1).unsqueeze(-1)
 
     def mode(self):
         return self.mean

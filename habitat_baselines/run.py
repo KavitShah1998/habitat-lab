@@ -13,6 +13,7 @@ import torch
 from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.config.default import get_config
+import habitat_baselines.bc.bc_trainer
 
 # import pydevd_pycharm
 # pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
@@ -64,10 +65,10 @@ def execute_exp(config: Config, run_type: str) -> None:
         return trainer.eval()
 
 PATHS_TO_JUNK = {
-    'LOG_FILE': '/private/home/naokiyokoyama/junk/train.log',
-    'CHECKPOINT_FOLDER': '/private/home/naokiyokoyama/junk/',
-    'TENSORBOARD_DIR': '/private/home/naokiyokoyama/junk/',
-    'VIDEO_DIR': '/private/home/naokiyokoyama/junk/',
+    'LOG_FILE': '/nethome/nyokoyama3/junk/train.log',
+    'CHECKPOINT_FOLDER': '/nethome/nyokoyama3/junk/',
+    'TENSORBOARD_DIR': '/nethome/nyokoyama3/junk/',
+    'VIDEO_DIR': '/nethome/nyokoyama3/junk/',
 }
 
 def run_exp(exp_config: str, run_type: str, opts=None) -> None:
