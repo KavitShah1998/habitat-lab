@@ -35,7 +35,8 @@ EXPERT_UUIDS = [
 @baseline_registry.register_trainer(name="bc")
 class BehavioralCloningMoe(BaseRLTrainer):
     def __init__(self, config, *args, **kwargs):
-        logger.info(f"env config: {config}")
+        logger.add_filehandler(config.LOG_FILE)
+        logger.info(f"Full config:\n{config}")
 
         self.config = config
         self.device = torch.device("cuda", 0)
@@ -60,6 +61,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.checkpoint_folder = config.CHECKPOINT_FOLDER
         self.tb_dir = config.TENSORBOARD_DIR
         self.bc_loss_type = config.BC_LOSS_TYPE
+        self.load_weights = config.RL.DDPPO.pretrained
 
     def setup_teacher_student(self):
         # Envs MUST be instantiated first
@@ -74,6 +76,20 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.moe = policy_cls.from_config(
             self.config, observation_space, self.envs.action_spaces[0]
         )
+
+        # Load pretrained weights if provided
+        if self.load_weights:
+            pretrained_state = torch.load(
+                self.config.RL.DDPPO.pretrained_weights, map_location="cpu"
+            )
+            orig_state_dict = self.moe.state_dict()
+            self.moe.load_state_dict(
+                {
+                    k: v if "expert" not in k else orig_state_dict[k]
+                    for k, v in pretrained_state["state_dict"].items()
+                }
+            )
+
         self.moe.to(self.device)
 
         # Setup prev_actions, masks, and recurrent hidden states
@@ -183,19 +199,16 @@ class BehavioralCloningMoe(BaseRLTrainer):
             setup_policy=policy,
         )
 
-        # Setup policies
+        # Set up policies
         self.setup_teacher_student()
 
-        # Setup optimizer
+        # Set up optimizer
         optimizer = optim.Adam(self.get_model_params(), lr=self.sl_lr)
 
-        # Setup tensorboard
+        # Set up tensorboard
         if self.tb_dir != "":
             print(f"Creating tensorboard at {self.tb_dir}...")
-            if osp.isdir(self.tb_dir):
-                print("Removing existing tensorboard dir...")
-                shutil.rmtree(self.tb_dir)
-            os.makedirs(self.tb_dir)
+            os.makedirs(self.tb_dir, exist_ok=True)
             writer = SummaryWriter(self.tb_dir)
         else:
             writer = None
@@ -209,7 +222,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
         action_loss = 0
         iterations = int(self.total_num_steps // self.envs.num_envs)
         for iteration in range(1, iterations + 1):
-            # Step environment using student actions
+            # Step environment using *student* actions
             step_actions, loss = self.get_action_and_loss(batch)
             outputs = self.envs.step(step_actions)
 
@@ -227,7 +240,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
             )
             batch = batch_obs(observations, device=self.device)
 
-            # Accumulate loss
+            # Accumulate loss across batch
             action_loss += loss
 
             # Get episode stats
@@ -247,7 +260,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 mean_succ = (
                     0 if not self.success_deq else np.mean(self.success_deq)
                 )
-                print(
+                logger.info(
                     f"iter: {iteration}\t"
                     f"batch_num: {batch_num}\t"
                     f"act_l: {action_loss.item():.4f}\t"
