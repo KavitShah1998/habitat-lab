@@ -3,7 +3,6 @@ from contextlib import ExitStack
 import os
 import os.path as osp
 import numpy as np
-import shutil
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
