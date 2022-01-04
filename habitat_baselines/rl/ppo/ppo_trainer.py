@@ -174,16 +174,13 @@ class PPOTrainer(BaseRLTrainer):
             )
 
         if self.config.RL.DDPPO.pretrained:
-            # To clear the actor head for continued training with the
-            # stop action.
-            model_dict = self.actor_critic.state_dict()
-            tmp_load_d = {
-                k[len("actor_critic.") :]: v
-                for k, v in pretrained_state["state_dict"].items()
-                if "action_distribution" not in k
-            }
-            model_dict.update(tmp_load_d)
-            self.actor_critic.load_state_dict(model_dict)
+            orig_state_dict = self.actor_critic.state_dict()
+            self.actor_critic.load_state_dict(
+                {
+                    k: v if "expert" not in k else orig_state_dict[k]
+                    for k, v in pretrained_state["state_dict"].items()
+                }
+            )
         elif self.config.RL.DDPPO.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
             self.actor_critic.net.visual_encoder.load_state_dict(
@@ -1062,11 +1059,14 @@ class PPOTrainer(BaseRLTrainer):
         try:
             self.agent.load_state_dict(ckpt_dict["state_dict"])
         except:
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print("WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!")
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            try:
+                self.agent.actor_critic.load_state_dict(ckpt_dict["state_dict"])
+            except:
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print("WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!")
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
         self.actor_critic = self.agent.actor_critic
 
@@ -1093,6 +1093,13 @@ class PPOTrainer(BaseRLTrainer):
         ## IF USING THE ABOVE, COMMENT OUT THE BELOW.
 
         observations = self.envs.reset()
+        if hasattr(self.actor_critic, "transform_obs"):
+            observations = self.actor_critic.transform_obs(
+                observations,
+                masks=torch.zeros(
+                    self.envs.num_envs, 1, dtype=torch.bool, device=self.device
+                ),
+            )
         batch = batch_obs(
             observations, device=self.device, cache=self._obs_batching_cache
         )
@@ -1233,13 +1240,19 @@ class PPOTrainer(BaseRLTrainer):
                     step_data = [
                         {"action": a.numpy()} for a in actions.to(device="cpu")
                     ]
-                    # print('step_data', step_data)
 
             outputs = self.envs.step(step_data)
 
             observations, rewards_l, dones, infos = [
                 list(x) for x in zip(*outputs)
             ]
+            if hasattr(self.actor_critic, "transform_obs"):
+                observations = self.actor_critic.transform_obs(
+                    observations,
+                    masks=torch.zeros(
+                        self.envs.num_envs, 1, dtype=torch.bool, device=self.device
+                    ),
+                )
             if self.config.RL.POLICY.name == "SequentialExperts":
                 self.actor_critic.next_skill_type = infos[0]["next_skill_type"]
             batch = batch_obs(
