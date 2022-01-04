@@ -105,46 +105,64 @@ class BehavioralCloningMoe(BaseRLTrainer):
         return self.moe.model_params
 
     def get_action_and_loss(self, batch):
+        teacher_labels = self.get_teacher_labels(batch)
+        if self.bc_loss_type == "log_prob":
+            actions, action_loss = self.log_prob_loss(batch, teacher_labels)
+        elif self.bc_loss_type == "mse":
+            actions, action_loss = self.mse_loss(batch, teacher_labels)
+        elif self.bc_loss_type == "mse_gaussian":
+            actions, action_loss = self.mse_gaussian_loss(batch)
+        else:
+            raise NotImplementedError(f"Loss {self.bc_loss_type} unsupported!")
+
+        if not self.bc_loss_type == "mse":
+            mse_loss = F.mse_loss(actions, teacher_labels)
+            self.action_mse_deq.append(mse_loss.detach().cpu().item())
+        step_actions = self.stepify_actions(actions)
+
+        return step_actions, action_loss
+
+    def get_teacher_labels(self, batch, label_type="action"):
         # Extract teacher actions from the observations
-        teacher_actions = []
+        teacher_labels = []
         for idx, correct_skill_idx in enumerate(batch["correct_skill_idx"]):
-            correct_action = (
-                torch.ones(
-                    self.num_actions, dtype=torch.float32, device=self.device
-                )
-                * 1e-6
+            correct_label = torch.zeros(
+                self.num_actions, dtype=torch.float32, device=self.device
             )
             correct_skill = EXPERT_UUIDS[int(correct_skill_idx)]
             if correct_skill == EXPERT_NULL_UUID:
                 # Null action when an expert cannot be determined
-                teacher_actions.append(correct_action)
+                teacher_labels.append(correct_label)
                 continue
-            correct_action_arg = batch[correct_skill][idx]
+
+            assert label_type in ["action", "mu", "std"]
+            if label_type == "action":
+                correct_label_arg = batch[correct_skill][idx]
+            else:
+                if correct_skill == EXPERT_NAV_UUID:
+                    dist = self.moe.expert_nav_policy.distribution
+                else:
+                    # TODO add support for place expert
+                    dist = self.moe.expert_gaze_policy.distribution
+                if label_type == "mean":
+                    correct_label_arg = dist.mean
+                else:
+                    correct_label_arg = dist.stddev
 
             # For MoE_res, correct action is ZEROS for correct expert
             if correct_skill == EXPERT_NAV_UUID:
-                correct_action[-2:] = correct_action_arg
+                correct_label[-2:] = correct_label_arg
             else:
-                correct_action[: len(correct_action_arg)] = correct_action_arg
-            teacher_actions.append(correct_action)
-        teacher_actions = torch.cat(
-            [t.reshape(1, self.num_actions) for t in teacher_actions], dim=0
+                correct_label[: len(correct_label_arg)] = correct_label_arg
+            teacher_labels.append(correct_label)
+        teacher_labels = torch.cat(
+            [t.reshape(1, self.num_actions) for t in teacher_labels], dim=0
         )
+        return teacher_labels
 
-        # Get action loss and student actions
-        if self.bc_loss_type == "log_prob":
-            _, action_log_probs, _, _ = self.moe.evaluate_actions(
-                batch,
-                self.rnn_hidden_states,
-                self.prev_actions,
-                self.masks,
-                teacher_actions,
-            )
-            with_stack = torch.no_grad
-        else:
-            with_stack = ExitStack
-
-        with with_stack():
+    def get_student_actions(self, batch, no_grad=False):
+        conditional_grad = torch.no_grad if no_grad else ExitStack
+        with conditional_grad():
             _, actions, _, self.rnn_hidden_states = self.moe.act(
                 batch,
                 self.rnn_hidden_states,
@@ -152,19 +170,14 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 self.masks,
                 deterministic=False,
             )
-            self.prev_actions.copy_(actions)
+        self.prev_actions.copy_(actions)
+        if not no_grad:
             self.prev_actions = self.prev_actions.detach()
             self.rnn_hidden_states = self.rnn_hidden_states.detach()
 
-        # Get action mse
-        mse_loss = F.mse_loss(actions, teacher_actions)
-        self.action_mse_deq.append(mse_loss.detach().cpu().item())
+        return actions
 
-        if self.bc_loss_type == "log_prob":
-            action_loss = -action_log_probs
-        else:
-            action_loss = mse_loss
-
+    def stepify_actions(self, actions):
         # Convert student actions into a dictionary for stepping envs
         step_actions = [
             self.moe.action_to_dict(act, index_env)
@@ -172,7 +185,44 @@ class BehavioralCloningMoe(BaseRLTrainer):
             # for index_env, act in enumerate(teacher_actions.unbind(0))
         ]
 
-        return step_actions, action_loss
+        return step_actions
+
+    def log_prob_loss(self, batch, teacher_labels):
+        _, action_log_probs, _, _ = self.moe.evaluate_actions(
+            batch,
+            self.rnn_hidden_states,
+            self.prev_actions,
+            self.masks,
+            teacher_labels,
+        )
+        action_loss = -action_log_probs
+        actions = self.get_student_actions(batch, no_grad=True)
+
+        return actions, action_loss
+
+    def mse_loss(self, batch, teacher_labels):
+        actions = self.get_student_actions(batch, no_grad=False)
+
+        mse_loss = F.mse_loss(actions, teacher_labels)
+        self.action_mse_deq.append(mse_loss.detach().cpu().item())
+        action_loss = mse_loss
+
+        return actions, action_loss
+
+    def mse_gaussian_loss(self, batch):
+        actions = self.get_student_actions(batch, no_grad=False)
+        student_mu = self.moe.distribution.mean
+        student_std = self.moe.distribution.stddev
+
+        # Extract teacher mu std from the observations
+        teacher_mu = self.get_teacher_labels(batch, label_type="mu")
+        teacher_std = self.get_teacher_labels(batch, label_type="std")
+
+        mu_mse_loss = F.mse_loss(student_mu, teacher_mu.detach())
+        std_mse_loss = F.mse_loss(student_std, teacher_std.detach())
+        action_loss = mu_mse_loss + std_mse_loss
+
+        return actions, action_loss
 
     def transform_observations(self, observations, masks):
         return self.moe.transform_obs(observations, masks)

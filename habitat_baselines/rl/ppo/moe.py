@@ -133,7 +133,6 @@ class NavGazeMixtureOfExpertsRes(Policy):
         :param masks: torch tensor.bool
         :return: observations with expert actions
         """
-        start_cuda = torch.cuda.memory_allocated()
         batch = batch_obs(
             observations, device=self.device, cache=self._obs_batching_cache
         )

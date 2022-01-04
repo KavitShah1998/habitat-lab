@@ -51,7 +51,7 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
 
             self.critic = CriticHead(self.net.output_size)
 
-        self.count = 0
+        self.distribution = None
 
     def forward(self, *x):
         raise NotImplementedError
@@ -76,6 +76,9 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
             action = distribution.sample()
 
         action_log_probs = distribution.log_probs(action)
+
+        # Save for use in behavioral cloning the mean and std
+        self.distribution = distribution
 
         return value, action, action_log_probs, rnn_hidden_states
 
@@ -202,7 +205,9 @@ class PointNavBaselineNet(Net):
 
         self._hidden_size = hidden_size
 
-        if self.num_cnns == 1:
+        if self.num_cnns <= 1:
+            if self.num_cnns == 0:
+                force_blind = True
             self.visual_encoder = SimpleCNN(
                 observation_space, hidden_size, force_blind
             )
