@@ -41,6 +41,7 @@ SKILL2VISUAL_BLACKLIST = {
     NAV: ["arm_depth", "arm_depth_bbox"],
     NAVPLACE: ["arm_depth", "arm_depth_bbox"],
     PICK: ["depth"],
+    PLACE: ["depth", "arm_depth", "arm_depth_bbox"],
 }
 
 
@@ -64,6 +65,10 @@ def ckpt_to_policy(checkpoint, observation_space):
         }
     )
 
+    if skill_type == PLACE:
+        config.defrost()
+        config.RL.POLICY.force_blind = True
+        config.freeze()
     policy = PointNavBaselinePolicy.from_config(
         config=config,
         observation_space=policy_observation_space,
@@ -155,6 +160,7 @@ class SequentialExperts(PointNavBaselinePolicy):
 
     def reset(self):
         print("Resetting SequentialExperts...")
+        # Assume first checkpoint given corresponds to the first policy to use
         self.current_skill = list(self.expert_skills.values())[0]
         self.hidden_state, self.masks, self.prev_actions = get_blank_params(
             self.current_skill["config"],
@@ -239,7 +245,7 @@ class SequentialExperts(PointNavBaselinePolicy):
         self.prev_actions = action
 
         # Pad expert actions to match the full action shape
-        if self.current_skill_type == PICK:
+        if self.current_skill_type in [PICK, PLACE]:
             z = torch.zeros(1, 2, device=self.device)
             action = torch.cat([action, z], dim=1)
         elif self.current_skill_type == NAV:
