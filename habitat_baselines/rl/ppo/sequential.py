@@ -243,6 +243,12 @@ class SequentialExperts(PointNavBaselinePolicy):
             deterministic=False,
         )
         self.prev_actions = action
+        self.masks = torch.ones(
+            1,  # num_envs
+            1,  # Just need one boolean.
+            dtype=torch.bool,
+            device=self.device,
+        )
 
         # Pad expert actions to match the full action shape
         if self.current_skill_type in [PICK, PLACE]:
