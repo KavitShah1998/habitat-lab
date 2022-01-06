@@ -6,10 +6,7 @@ from habitat_baselines.rl.ppo.sequential import (
     ckpt_to_policy,
     get_blank_params,
 )
-from functools import partial
-from gym import spaces
 from gym.spaces import Box, Dict
-import numpy as np
 import torch
 
 from habitat.config import Config
@@ -31,7 +28,7 @@ EXPERT_GAZE_UUID = "expert_gaze"
 class NavGazeMixtureOfExpertsRes(Policy):
     def __init__(
         self,
-        observation_space: spaces.Dict,
+        observation_space: Dict,
         action_space,
         nav_checkpoint_path,
         gaze_checkpoint_path,
@@ -39,6 +36,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
         fuse_states,
         num_environments,
         hidden_size: int = 512,
+        train_critic_only=False,
         *args,
         **kwargs,
     ):
@@ -65,6 +63,13 @@ class NavGazeMixtureOfExpertsRes(Policy):
 
         # Get model params before experts get loaded in
         self.model_params = [p for p in self.parameters() if p.requires_grad]
+
+        # Freeze non-critic weights if training only critic
+        if train_critic_only:
+            for name, param in self.named_parameters():
+                if "critic" not in name:
+                    param.requires_grad = False
+
 
         # Store tensors into CPU for now
         self.device = torch.device("cpu")
@@ -93,7 +98,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
 
     @classmethod
     def from_config(
-        cls, config: Config, observation_space: spaces.Dict, action_space
+        cls, config: Config, observation_space: Dict, action_space
     ):
         """
         Action space needs to be overwritten, as by default it is extracted from the
@@ -113,6 +118,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
             fuse_states=config.RL.POLICY.fuse_states,
             num_environments=config.NUM_ENVIRONMENTS,
             hidden_size=config.RL.PPO.hidden_size,
+            train_critic_only=config.RL.get("train_critic_only", False)
         )
 
     def to(self, device, *args):
@@ -194,74 +200,3 @@ class NavGazeMixtureOfExpertsRes(Policy):
         }
 
         return step_data
-
-    # def choose_mix_of_actions(self, actions):
-    #     """
-    #     Given a NavGaze policy, reformat the MoE action to actually incorporate expert
-    #     actions
-    #
-    #     :param actions:
-    #     :return: step_data, similar to below
-    #     [{'action': array([-1.360452  ,  1.7130293 , -0.706296  , -1.5175911 , -2.1926935 ,
-    #        -0.96006346], dtype=float32)}]
-    #
-    #     arm_ac = action[0][:3].cpu().numpy()
-    #     grip_ac = None if not self.place_success else 0
-    #     base_ac = action[0][-2:].cpu().numpy()
-    #     step_data = [{'action': a.numpy()} for a in actions.to(device="cpu")]
-    #     """
-    #
-    #     step_data = []
-    #     for mix_action, base_action, self.gaze_action in zip(
-    #         actions.to(device="cpu"),
-    #         self.nav_action.to(device="cpu"),
-    #         self.gaze_action.to(device="cpu"),
-    #     ):
-    #         use_nav, use_gaze = mix_action.numpy()
-    #         if use_nav > 0.0:
-    #             base_step_action = base_action.numpy()
-    #         else:
-    #             base_step_action = np.zeros(2, dtype=np.float32)
-    #         if use_gaze > 0.0:
-    #             gaze_step_action = self.gaze_action.numpy()
-    #         else:
-    #             gaze_step_action = np.zeros(8, dtype=np.float32)
-    #
-    #         step_data.append(
-    #             {
-    #                 "action": np.concatenate(
-    #                     [gaze_step_action, base_step_action]
-    #                 )
-    #             }
-    #         )
-    #
-    #     return step_data
-
-    #
-    # def choose_single_mix_of_actions(self, action):
-    #     """
-    #     Given a NavGaze policy, reformat the MoE action to actually incorporate expert
-    #     actions
-    #
-    #     :param actions:
-    #     :return: step_data, similar to below
-    #     [{'action': array([-1.360452  ,  1.7130293 , -0.706296  , -1.5175911 , -2.1926935 ,
-    #        -0.96006346], dtype=float32)}]
-    #
-    #     arm_ac = action[0][:3].cpu().numpy()
-    #     grip_ac = None if not self.place_success else 0
-    #     base_ac = action[0][-2:].cpu().numpy()
-    #     step_data = [{'action': a.numpy()} for a in actions.to(device="cpu")]
-    #     """
-    #
-    #     use_nav, use_gaze = action.cpu().numpy()
-    #     if use_nav > 0.0:
-    #         base_step_action = base_action.numpy()
-    #     else:
-    #         base_step_action = np.zeros(2, dtype=np.float32)
-    #     if use_gaze > 0.0:
-    #         gaze_step_action = self.gaze_action.numpy()
-    #     else:
-    #         gaze_step_action = np.zeros(8, dtype=np.float32)
-    #
-    #     return {"action": np.concatenate([base_step_action, gaze_step_action])}

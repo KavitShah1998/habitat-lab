@@ -175,12 +175,23 @@ class PPOTrainer(BaseRLTrainer):
 
         if self.config.RL.DDPPO.pretrained:
             orig_state_dict = self.actor_critic.state_dict()
-            self.actor_critic.load_state_dict(
-                {
-                    k: v if "expert" not in k else orig_state_dict[k]
-                    for k, v in pretrained_state["state_dict"].items()
-                }
-            )
+            try:
+                self.actor_critic.load_state_dict(
+                    {
+                        k: v if "expert" not in k else orig_state_dict[k]
+                        for k, v in pretrained_state["state_dict"].items()
+                    }
+                )
+            except KeyError:
+                prefix = "actor_critic."
+                self.actor_critic.load_state_dict(
+                    {
+                        k[len(prefix) :]: v
+                        if "expert" not in k
+                        else orig_state_dict[k[len(prefix) :]]
+                        for k, v in pretrained_state["state_dict"].items()
+                    }
+                )
         elif self.config.RL.DDPPO.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
             self.actor_critic.net.visual_encoder.load_state_dict(
@@ -1060,7 +1071,9 @@ class PPOTrainer(BaseRLTrainer):
             self.agent.load_state_dict(ckpt_dict["state_dict"])
         except:
             try:
-                self.agent.actor_critic.load_state_dict(ckpt_dict["state_dict"])
+                self.agent.actor_critic.load_state_dict(
+                    ckpt_dict["state_dict"]
+                )
             except:
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -1250,7 +1263,10 @@ class PPOTrainer(BaseRLTrainer):
                 observations = self.actor_critic.transform_obs(
                     observations,
                     masks=torch.zeros(
-                        self.envs.num_envs, 1, dtype=torch.bool, device=self.device
+                        self.envs.num_envs,
+                        1,
+                        dtype=torch.bool,
+                        device=self.device,
                     ),
                 )
             if self.config.RL.POLICY.name == "SequentialExperts":
