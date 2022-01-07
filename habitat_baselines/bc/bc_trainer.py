@@ -88,7 +88,8 @@ class BehavioralCloningMoe(BaseRLTrainer):
                     for k, v in pretrained_state["state_dict"].items()
                 }
             )
-
+        print("Actor-critic architecture:\n", self.moe)
+        print("Fuse states:\n", "\n ".join(self.moe.net.fuse_states))
         self.moe.to(self.device)
 
         # Setup prev_actions, masks, and recurrent hidden states
@@ -177,12 +178,11 @@ class BehavioralCloningMoe(BaseRLTrainer):
 
         return actions
 
-    def stepify_actions(self, actions):
+    def stepify_actions(self, actions, **kwargs):
         # Convert student actions into a dictionary for stepping envs
         step_actions = [
-            self.moe.action_to_dict(act, index_env)
+            self.moe.action_to_dict(act, index_env, **kwargs)
             for index_env, act in enumerate(actions.detach().cpu().unbind(0))
-            # for index_env, act in enumerate(teacher_actions.unbind(0))
         ]
 
         return step_actions
@@ -309,12 +309,13 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 mean_succ = (
                     0 if not self.success_deq else np.mean(self.success_deq)
                 )
+                succ_deque_len = len(self.success_deq)
                 logger.info(
                     f"iter: {iteration}\t"
                     f"batch_num: {batch_num}\t"
                     f"act_l: {action_loss.item():.4f}\t"
                     f"act_mse: {np.mean(self.action_mse_deq):.4f}\t"
-                    f"mean_succ: {mean_succ:.4f}\t"
+                    f"mean_succ: {mean_succ:.4f} ({succ_deque_len})\t"
                 )
 
                 # Update tensorboard
@@ -342,3 +343,51 @@ class BehavioralCloningMoe(BaseRLTrainer):
                     print("Saved checkpoint:", ckpt_path)
 
         self.envs.close()
+
+
+@baseline_registry.register_trainer(name="bc_mask")
+class BehavioralCloningMoeMask(BehavioralCloningMoe):
+    def get_action_and_loss(self, batch):
+        teacher_mask_labels = self.get_teacher_labels(batch)
+        actions = self.get_student_actions(batch)
+        step_actions = self.stepify_actions(actions, use_residuals=False)
+
+        # Calculate loss. We only care about the mask outputs for behavioral
+        # cloning, not the residuals.
+        mask_actions = actions[:, -self.moe.num_experts :]
+        action_loss = F.mse_loss(mask_actions, teacher_mask_labels)
+
+        # Not applicable for MoeMask; just say -1
+        self.action_mse_deq.append(-1)
+
+        return step_actions, action_loss
+
+    def get_teacher_labels(self, batch, label_type="action"):
+        """We only need to supervise 2 or 3 actions of the student: the masks
+        that it outputs for each of the 2-3 experts"""
+
+        expert_masks = {uuid: [] for uuid in EXPERT_UUIDS}
+        # Iterates over each environment
+        for idx, correct_skill_idx in enumerate(batch["correct_skill_idx"]):
+            correct_skill = EXPERT_UUIDS[int(correct_skill_idx)]
+            for uuid in expert_masks.keys():
+                expert_masks[uuid].append(1 if uuid == correct_skill else -1)
+
+        def get_mask_tensor(uuid):
+            return torch.tensor(
+                expert_masks[uuid], dtype=torch.float32
+            ).reshape(self.envs.num_envs, 1)
+
+        nav_masks = get_mask_tensor(EXPERT_NAV_UUID)
+        gaze_masks = get_mask_tensor(EXPERT_GAZE_UUID)
+        if self.moe.num_experts == 2:
+            teacher_mask_labels = [nav_masks, gaze_masks]
+        elif self.moe.num_experts == 3:
+            place_masks = get_mask_tensor(EXPERT_PLACE_UUID)
+            teacher_mask_labels = [nav_masks, gaze_masks, place_masks]
+        else:
+            raise NotImplementedError
+        teacher_mask_labels = torch.cat(teacher_mask_labels, dim=1)
+        teacher_mask_labels = teacher_mask_labels.to(self.device)
+
+        return teacher_mask_labels
