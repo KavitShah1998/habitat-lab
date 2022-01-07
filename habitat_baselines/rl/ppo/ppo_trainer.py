@@ -158,7 +158,10 @@ class PPOTrainer(BaseRLTrainer):
         self.actor_critic = policy.from_config(
             self.config, observation_space, self.envs.action_spaces[0]
         )
-        print("Actor-critic architecture:", self.actor_critic)
+        print("Actor-critic architecture:\n", self.actor_critic)
+        if hasattr(self.actor_critic.net, "fuse_states"):
+            fuse_states_list = "\n - ".join(self.actor_critic.net.fuse_states)
+            print("Fuse states:\n -", fuse_states_list)
         self.obs_space = observation_space
         print("Observation space:")
         for k, v in observation_space.spaces.items():
@@ -342,8 +345,8 @@ class PPOTrainer(BaseRLTrainer):
             )
 
         self._nbuffers = 2 if ppo_cfg.use_double_buffered_sampler else 1
-        if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
-            self.policy_action_space = spaces.Box(-1.0, 1.0, (2,))
+        if hasattr(self.actor_critic, "policy_action_space"):
+            self.policy_action_space = self.actor_critic.policy_action_space
         else:
             self.policy_action_space = self.envs.action_spaces[0]
         self.rollouts = RolloutStorage(
