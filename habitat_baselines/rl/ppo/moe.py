@@ -277,6 +277,16 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             action, [ARM_ACTIONS, BASE_ACTIONS, self.num_experts], dim=1
         )
 
+        # Zero out low residual values
+        low_arm_residuals = (residual_arm_actions < 0.1) + (
+            residual_arm_actions > -0.1
+        )
+        low_base_residuals = (residual_base_actions < 0.1) + (
+            residual_base_actions > -0.1
+        )
+        residual_arm_actions[low_arm_residuals] = 0.0
+        residual_base_actions[low_base_residuals] = 0.0
+
         # Generate arm and base action mask for later use (self.action_to_dict)
         self.get_action_masks(expert_masks)
 
