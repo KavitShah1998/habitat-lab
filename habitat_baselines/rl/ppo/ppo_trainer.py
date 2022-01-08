@@ -1136,8 +1136,8 @@ class PPOTrainer(BaseRLTrainer):
             ac_shape = 1
             ac_dtype = torch.float32
         else:
-            if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
-                ac_shape = 2
+            if hasattr(self.actor_critic, "policy_action_space"):
+                ac_shape = self.actor_critic.policy_action_space.shape[0]
                 ac_dtype = torch.float32
             else:
                 if hasattr(self.envs.action_spaces[0], "spaces"):
@@ -1240,7 +1240,13 @@ class PPOTrainer(BaseRLTrainer):
             if self.is_simple_env():
                 step_data = [a.item() for a in actions.to(device="cpu")]
             else:
-                if self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
+                if hasattr(self.actor_critic, "action_to_dict"):
+                    step_data = [
+                        self.actor_critic.action_to_dict(act, index_env)
+                        for index_env, act in
+                        enumerate(actions.cpu().unbind(0))
+                    ]
+                elif self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
                     step_data = self.actor_critic.choose_mix_of_actions(
                         actions
                     )
