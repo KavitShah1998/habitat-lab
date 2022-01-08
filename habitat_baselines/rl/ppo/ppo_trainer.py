@@ -1268,16 +1268,19 @@ class PPOTrainer(BaseRLTrainer):
             observations, rewards_l, dones, infos = [
                 list(x) for x in zip(*outputs)
             ]
+
+            not_done_masks = torch.tensor(
+                [[not done] for done in dones],
+                dtype=torch.bool,
+                device="cpu",
+            )
+
             if hasattr(self.actor_critic, "transform_obs"):
                 observations = self.actor_critic.transform_obs(
                     observations,
-                    masks=torch.zeros(
-                        self.envs.num_envs,
-                        1,
-                        dtype=torch.bool,
-                        device=self.device,
-                    ),
+                    masks=not_done_masks,
                 )
+
             if self.config.RL.POLICY.name == "SequentialExperts":
                 self.actor_critic.next_skill_type = infos[0]["next_skill_type"]
             batch = batch_obs(
@@ -1286,12 +1289,6 @@ class PPOTrainer(BaseRLTrainer):
                 cache=self._obs_batching_cache,
             )
             batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-
-            not_done_masks = torch.tensor(
-                [[not done] for done in dones],
-                dtype=torch.bool,
-                device="cpu",
-            )
 
             rewards = torch.tensor(
                 rewards_l, dtype=torch.float, device="cpu"
