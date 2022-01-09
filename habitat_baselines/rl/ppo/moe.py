@@ -13,10 +13,6 @@ from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.utils.common import batch_obs, ObservationBatchingCache
 
-"""
-
-Focus first on NavGaze MoE....
-"""
 
 ARM_ACTIONS = 4  # 4 controllable joints
 BASE_ACTIONS = 2  # linear and angular vel
@@ -218,6 +214,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         self.gaze_action_mask = None
         self.place_action_mask = None
         self.arm_action_mask = None
+        self.num_masks = self.num_experts
 
     @classmethod
     def from_config(
@@ -231,6 +228,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         actual_action_space = Box(
             -1.0, 1.0, (action_space.shape[0] + num_experts,)
         )
+
         return cls(
             observation_space=observation_space,
             action_space=actual_action_space,
@@ -274,18 +272,17 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             residual_base_actions,
             expert_masks,
         ) = torch.split(
-            action, [ARM_ACTIONS, BASE_ACTIONS, self.num_experts], dim=1
+            action, [ARM_ACTIONS, BASE_ACTIONS, self.num_masks], dim=1
         )
 
         # Zero out low residual values
-        low_arm_residuals = (residual_arm_actions < 0.1) + (
-            residual_arm_actions > -0.1
-        )
-        low_base_residuals = (residual_base_actions < 0.1) + (
-            residual_base_actions > -0.1
-        )
-        residual_arm_actions[low_arm_residuals] = 0.0
-        residual_base_actions[low_base_residuals] = 0.0
+        def zero_out_low_values(act):
+            low_act = torch.logical_and(-0.1 < act, act < 0.1)
+            # Use 1e-6, not 0.0, because it can break backprop
+            return torch.where(low_act, torch.full_like(act, 1e-6), act)
+
+        residual_arm_actions = zero_out_low_values(residual_arm_actions)
+        residual_base_actions = zero_out_low_values(residual_base_actions)
 
         # Generate arm and base action mask for later use (self.action_to_dict)
         self.get_action_masks(expert_masks)
@@ -371,3 +368,48 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         }
 
         return step_data
+
+
+@baseline_registry.register_policy
+class NavGazeMixtureOfExpertsMaskSingle(NavGazeMixtureOfExpertsMask):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_masks = 1
+
+    @classmethod
+    def from_config(
+        cls, config: Config, observation_space: Dict, action_space
+    ):
+        actual_action_space = Box(-1.0, 1.0, (action_space.shape[0] + 1,))
+
+        return cls(
+            observation_space=observation_space,
+            action_space=actual_action_space,
+            nav_checkpoint_path=config.RL.POLICY.nav_checkpoint_path,
+            gaze_checkpoint_path=config.RL.POLICY.gaze_checkpoint_path,
+            goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0),
+            fuse_states=config.RL.POLICY.fuse_states,
+            num_environments=config.NUM_ENVIRONMENTS,
+            hidden_size=config.RL.PPO.hidden_size,
+            train_critic_only=config.RL.get("train_critic_only", False),
+            residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
+        )
+
+    def get_action_masks(self, expert_masks):
+        if self.num_experts == 2:
+            nav_masks = torch.where(expert_masks < 0, 1.0, -1.0)
+            gaze_masks = torch.where(expert_masks > 0, 1.0, -1.0)
+            expert_masks = [nav_masks, gaze_masks]
+        elif self.num_experts == 3:
+            nav_masks = torch.where(expert_masks < -0.25, 1.0, -1.0)
+            gaze_masks = torch.where(
+                torch.logical_and(-0.25 < expert_masks, expert_masks < 0.25),
+                1.0,
+                -1.0,
+            )
+            place_masks = torch.where(expert_masks > 0.25, 1.0, -1.0)
+            expert_masks = [nav_masks, gaze_masks, place_masks]
+        else:
+            raise NotImplementedError
+        expert_masks = torch.cat(expert_masks, dim=1)
+        super().get_action_masks(expert_masks)

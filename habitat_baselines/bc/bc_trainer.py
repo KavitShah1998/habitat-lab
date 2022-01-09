@@ -354,7 +354,7 @@ class BehavioralCloningMoeMask(BehavioralCloningMoe):
 
         # Calculate loss. We only care about the mask outputs for behavioral
         # cloning, not the residuals.
-        mask_actions = actions[:, -self.moe.num_experts :]
+        mask_actions = actions[:, -self.moe.num_masks :]
         action_loss = F.mse_loss(mask_actions, teacher_mask_labels)
 
         # Not applicable for MoeMask; just say -1
@@ -389,5 +389,29 @@ class BehavioralCloningMoeMask(BehavioralCloningMoe):
             raise NotImplementedError
         teacher_mask_labels = torch.cat(teacher_mask_labels, dim=1)
         teacher_mask_labels = teacher_mask_labels.to(self.device)
+
+        return teacher_mask_labels
+
+
+@baseline_registry.register_trainer(name="bc_mask_single")
+class BehavioralCloningMoeMaskSingle(BehavioralCloningMoeMask):
+    def get_teacher_labels(self, batch, label_type="action"):
+        teacher_mask_labels = []
+        uuid2bin = {
+            EXPERT_NAV_UUID: -1.0,
+            EXPERT_GAZE_UUID: 0.0 if self.moe.num_experts == 3 else 1.0,
+            EXPERT_PLACE_UUID: 1.0,
+            EXPERT_NULL_UUID: 0.0,  # Iffy
+        }
+        # Iterates over each environment
+        for idx, correct_skill_idx in enumerate(batch["correct_skill_idx"]):
+            correct_skill = EXPERT_UUIDS[int(correct_skill_idx)]
+            teacher_mask_labels.append(uuid2bin[correct_skill])
+
+        teacher_mask_labels = torch.tensor(
+            teacher_mask_labels,
+            dtype=torch.float32,
+            device=self.device,
+        ).reshape(self.envs.num_envs, 1)
 
         return teacher_mask_labels
