@@ -24,6 +24,7 @@ from habitat_baselines.rl.models.simple_cnn import SimpleCNN
 from habitat_baselines.utils.common import (
     CategoricalNet,
     GaussianNet,
+    GaussianCategoricalNet,
     initialized_linear,
 )
 
@@ -35,7 +36,9 @@ HEAD_VISION_KEYS = ["depth", "rgb"]
 
 
 class Policy(nn.Module, metaclass=abc.ABCMeta):
-    def __init__(self, net, action_space):
+    def __init__(
+        self, net, action_space, gaussian_categorical=False, **kwargs
+    ):
         super().__init__()
         self.net = net
 
@@ -45,9 +48,14 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
                     self.net.output_size, action_space.n
                 )
             else:
-                self.action_distribution = GaussianNet(
-                    self.net.output_size, action_space.shape[0]
-                )
+                if gaussian_categorical:
+                    self.action_distribution = GaussianCategoricalNet(
+                        self.net.output_size, **kwargs
+                    )
+                else:
+                    self.action_distribution = GaussianNet(
+                        self.net.output_size, action_space.shape[0]
+                    )
 
             self.critic = CriticHead(self.net.output_size)
 

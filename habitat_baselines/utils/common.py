@@ -116,6 +116,88 @@ class GaussianNet(nn.Module):
         return CustomNormal(mu, std)
 
 
+class GaussianCategoricalNet(nn.Module):
+    def __init__(
+        self,
+        num_inputs: int,
+        num_outputs_gaussian: int,
+        num_outputs_categorical: int,
+        std_min: float = 1e-6,
+        std_max: float = 1,
+    ) -> None:
+        super().__init__()
+
+        self.gaussian_net = GaussianNet(
+            num_inputs,
+            num_outputs_gaussian,
+            std_min,
+            std_max,
+        )
+        self.categorical_net = CategoricalNet(
+            num_inputs, num_outputs_categorical
+        )
+
+    def forward(self, x: Tensor):
+        mu = torch.tanh(self.gaussian_net.mu(x))
+        std = torch.clamp(
+            self.gaussian_net.std(x),
+            min=self.gaussian_net.std_min,
+            max=self.gaussian_net.std_max,
+        )
+        logits = self.categorical_net.linear(x)
+
+        return CustomNormalCategorical(mu, std, logits)
+
+
+class CustomNormalCategorical:
+    def __init__(self, mu, std, logits):
+        self.gaussian = CustomNormal(mu, std)
+        self.categorical = CustomFixedCategorical(logits=logits)
+
+    def sample(
+        self, sample_shape: Size = torch.Size()  # noqa: B008
+    ) -> Tensor:
+        gaussian_sample = self.gaussian.rsample(sample_shape)
+        categorical_sample = self.categorical.sample(sample_shape).float()
+        sample = torch.cat([gaussian_sample, categorical_sample], dim=1)
+        return sample
+
+    def log_probs(self, actions: Tensor) -> Tensor:
+        gaussian_dim = actions.shape[1] - 1
+        categorical_dim = 1
+        gaussian_actions, categorical_actions = torch.split(
+            actions, [gaussian_dim, categorical_dim], dim=1
+        )
+        gaussian_log_probs = self.gaussian.log_probs(gaussian_actions)
+        categorical_log_probs = self.categorical.log_probs(
+            categorical_actions.long()
+        )
+        log_probs = gaussian_log_probs + categorical_log_probs
+        return log_probs
+
+    def mode(self):
+        gaussian_mode = self.gaussian.mode()
+        categorical_mode = self.categorical.mode().float()
+        mode = torch.cat([gaussian_mode, categorical_mode], dim=1)
+        return mode
+
+    def entropy(self):
+        return self.gaussian.entropy() + self.categorical.entropy()
+
+
+class CustomNormal(torch.distributions.normal.Normal):
+    def sample(
+        self, sample_shape: Size = torch.Size()  # noqa: B008
+    ) -> Tensor:
+        return super().rsample(sample_shape)
+
+    def log_probs(self, actions):
+        return super().log_prob(actions).sum(-1).unsqueeze(-1)
+
+    def mode(self):
+        return self.mean
+
+
 def initialized_linear(in_features, out_features, gain, bias=0):
     layer = nn.Linear(in_features, out_features)
     nn.init.orthogonal_(layer.weight, gain=gain)

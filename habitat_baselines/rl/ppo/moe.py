@@ -56,6 +56,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
                 force_blind=False,
             ),
             action_space,
+            **kwargs,
         )
 
         # For RolloutStorage in ppo_trainer.py
@@ -358,10 +359,11 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             step_action = experts_action
 
         # Add expert actions as action_args for reward calculation in RLEnv
+        masks_arg = action[ARM_ACTIONS + BASE_ACTIONS :].detach().cpu().numpy()
         expert_args = {
             EXPERT_GAZE_UUID: gaze_action,
             EXPERT_NAV_UUID: nav_action,
-            EXPERT_MASKS_UUID: action[ARM_ACTIONS + BASE_ACTIONS :],
+            EXPERT_MASKS_UUID: masks_arg,
         }
         step_data = {
             "action": {"action": step_action, **expert_args, **kwargs}
@@ -413,3 +415,85 @@ class NavGazeMixtureOfExpertsMaskSingle(NavGazeMixtureOfExpertsMask):
             raise NotImplementedError
         expert_masks = torch.cat(expert_masks, dim=1)
         super().get_action_masks(expert_masks)
+
+
+@baseline_registry.register_policy
+class NavGazeMixtureOfExpertsMaskCombo(NavGazeMixtureOfExpertsMask):
+    """
+    The difference between Combo and Single is that the final action, the
+    experts mask, is not the output of a Gaussian action distribution (-1 - 1),
+    but rather is the output of a Categorical action distribution (0 - 2) or
+    (0 - 4)
+    """
+
+    def __init__(self, num_combos, freeze_residuals, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_masks = 1
+        self.num_combos = num_combos
+        self.freeze_residuals = freeze_residuals
+        if freeze_residuals:
+            for name, param in self.named_parameters():
+                if "gaussian_net" in name:
+                    param.requires_grad = False
+
+        """Nav, Gaze, NavGaze | Place, NavPlace"""
+        filter_valid_combos = lambda x: [i for i in x if i < num_combos]
+        self.nav_combo_ids = filter_valid_combos[[0, 2, 4]]
+        self.gaze_combo_ids = filter_valid_combos[[1, 2]]
+        self.place_combo_ids = filter_valid_combos[[3, 4]]
+
+
+    @classmethod
+    def from_config(
+        cls, config: Config, observation_space: Dict, action_space
+    ):
+        num_actions = action_space.shape[0]
+        actual_action_space = Box(-1.0, 1.0, (num_actions + 1,))
+
+        num_combos = config.RL.POLICY.num_combos
+        return cls(
+            observation_space=observation_space,
+            action_space=actual_action_space,
+            nav_checkpoint_path=config.RL.POLICY.nav_checkpoint_path,
+            gaze_checkpoint_path=config.RL.POLICY.gaze_checkpoint_path,
+            goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0),
+            fuse_states=config.RL.POLICY.fuse_states,
+            num_environments=config.NUM_ENVIRONMENTS,
+            hidden_size=config.RL.PPO.hidden_size,
+            train_critic_only=config.RL.get("train_critic_only", False),
+            residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
+            num_combos=num_combos,
+            freeze_residuals=config.RL.POLICY.freeze_residuals,
+            # For GaussianCategorical action distribution
+            gaussian_categorical=True,
+            num_outputs_gaussian=num_actions,
+            num_outputs_categorical=num_combos,
+        )
+
+    def get_action_masks(self, expert_masks):
+        """Nav, Gaze, NavGaze | Place, NavPlace"""
+        nav_combo_ids = [0, 2] if self.num_combos == 3 else [0, 2, 4]
+        gaze_combo_ids = [1, 2]
+        place_combo_ids = [3, 4] if self.num_combos == 5 else None
+
+        expert_masks = [
+            torch.where(
+                torch.logical_or(*[expert_masks == c_id for c_id in c_ids]),
+                1.0,
+                -1.0,
+            )
+            for c_ids in [nav_combo_ids, gaze_combo_ids, place_combo_ids]
+            if c_ids is not None
+        ]
+
+        expert_masks = torch.cat(expert_masks, dim=1)
+
+        super().get_action_masks(expert_masks)
+
+    def action_to_dict(self, action, index_env, **kwargs):
+        return super().action_to_dict(
+            action,
+            index_env,
+            use_residuals=not self.freeze_residuals,
+            **kwargs,
+        )
