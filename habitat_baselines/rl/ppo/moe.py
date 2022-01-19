@@ -438,9 +438,9 @@ class NavGazeMixtureOfExpertsMaskCombo(NavGazeMixtureOfExpertsMask):
 
         """Nav, Gaze, NavGaze | Place, NavPlace"""
         filter_valid_combos = lambda x: [i for i in x if i < num_combos]
-        self.nav_combo_ids = filter_valid_combos[[0, 2, 4]]
-        self.gaze_combo_ids = filter_valid_combos[[1, 2]]
-        self.place_combo_ids = filter_valid_combos[[3, 4]]
+        self.nav_combo_ids = filter_valid_combos([0, 2, 4])
+        self.gaze_combo_ids = filter_valid_combos([1, 2])
+        self.place_combo_ids = filter_valid_combos([3, 4])
 
 
     @classmethod
@@ -471,24 +471,22 @@ class NavGazeMixtureOfExpertsMaskCombo(NavGazeMixtureOfExpertsMask):
         )
 
     def get_action_masks(self, expert_masks):
-        """Nav, Gaze, NavGaze | Place, NavPlace"""
-        nav_combo_ids = [0, 2] if self.num_combos == 3 else [0, 2, 4]
-        gaze_combo_ids = [1, 2]
-        place_combo_ids = [3, 4] if self.num_combos == 5 else None
+        cmbs = [self.nav_combo_ids, self.gaze_combo_ids, self.place_combo_ids]
 
-        expert_masks = [
-            torch.where(
-                torch.logical_or(*[expert_masks == c_id for c_id in c_ids]),
-                1.0,
-                -1.0,
-            )
-            for c_ids in [nav_combo_ids, gaze_combo_ids, place_combo_ids]
-            if c_ids is not None
-        ]
+        expert_masks_out = []
+        for combo_ids in cmbs:
+            if len(combo_ids) == 0:
+                continue
+            expert_mask = torch.zeros_like(expert_masks, dtype=torch.bool)
+            for combo_id in combo_ids:
+                combo_id_mask = expert_masks == combo_id
+                expert_mask = torch.logical_or(combo_id_mask, expert_mask)
+            expert_mask_out = torch.where(expert_mask, 1.0, -1.0)
+            expert_masks_out.append(expert_mask_out)
 
-        expert_masks = torch.cat(expert_masks, dim=1)
+        expert_masks_out = torch.cat(expert_masks_out, dim=1)
 
-        super().get_action_masks(expert_masks)
+        super().get_action_masks(expert_masks_out)
 
     def action_to_dict(self, action, index_env, **kwargs):
         return super().action_to_dict(
