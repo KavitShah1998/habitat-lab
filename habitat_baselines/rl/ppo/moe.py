@@ -208,9 +208,10 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
     cannot be generated in the ppo.py script.
     """
 
-    def __init__(self, residuals_on_inactive, *args, **kwargs):
+    def __init__(self, residuals_on_inactive, use_residuals, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.residuals_on_inactive = residuals_on_inactive
+        self.use_residuals = use_residuals
         self.nav_action_mask = None
         self.gaze_action_mask = None
         self.place_action_mask = None
@@ -241,6 +242,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             hidden_size=config.RL.PPO.hidden_size,
             train_critic_only=config.RL.get("train_critic_only", False),
             residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
+            use_residuals=config.RL.POLICY.use_residuals,
         )
 
     def act(
@@ -335,6 +337,9 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             raise NotImplementedError
 
     def action_to_dict(self, action, index_env, use_residuals=True, **kwargs):
+        if self.use_residuals is not None:
+            use_residuals = self.use_residuals
+
         # Merge mixer's actions with experts'
         gaze_action = self.gaze_action[index_env]
         nav_action = self.nav_action[index_env]
@@ -395,6 +400,7 @@ class NavGazeMixtureOfExpertsMaskSingle(NavGazeMixtureOfExpertsMask):
             hidden_size=config.RL.PPO.hidden_size,
             train_critic_only=config.RL.get("train_critic_only", False),
             residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
+            use_residuals=config.RL.POLICY.use_residuals,
         )
 
     def get_action_masks(self, expert_masks):
