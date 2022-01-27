@@ -5,12 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 import abc
 
-from gym import spaces
 import numpy as np
 import torch
+from gym import spaces
 from torch import nn as nn
 
 from habitat.config import Config
+from habitat.core.spaces import ActionSpace
 from habitat.tasks.nav.nav import (
     ImageGoalSensor,
     IntegratedPointGoalGPSAndCompassSensor,
@@ -23,13 +24,10 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
 from habitat_baselines.rl.models.simple_cnn import SimpleCNN
 from habitat_baselines.utils.common import (
     CategoricalNet,
-    GaussianNet,
     GaussianCategoricalNet,
+    GaussianNet,
     initialized_linear,
 )
-
-from habitat.core.spaces import ActionSpace
-
 
 ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
 HEAD_VISION_KEYS = ["depth", "rgb"]
@@ -261,11 +259,20 @@ class PointNavBaselineNet(Net):
             )
 
         # Final RNN layer
+        if self.is_blind:
+            if "visual_features" in observation_space.spaces:
+                visual_size = observation_space.spaces[
+                    "visual_features"
+                ].shape[0]
+            else:
+                visual_size = 0
+        else:
+            visual_size = hidden_size * self.num_cnns
         self.state_encoder = build_rnn_state_encoder(
-            (0 if self.is_blind else hidden_size * self.num_cnns)
-            + self._goal_hidden_size,
-            self._hidden_size,
+            visual_size + self._goal_hidden_size, self._hidden_size
         )
+
+        self.pred_visual_features = None
 
         self.train()
 
@@ -294,6 +301,11 @@ class PointNavBaselineNet(Net):
             x.append(self.visual_encoder(observations))
             if self.num_cnns == 2:
                 x.append(self.visual_encoder2(observations))
+        elif "visual_features" in observations:
+            x.append(observations["visual_features"])
+
+        # Save visual features for use by other policies
+        self.pred_visual_features = torch.cat(x, dim=1)
 
         # Non-visual observations
         if len(self.fuse_states) > 0:

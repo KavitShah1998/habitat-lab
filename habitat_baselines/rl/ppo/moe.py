@@ -1,24 +1,22 @@
-from habitat_baselines.rl.ppo.policy import (
-    Policy,
-    PointNavBaselineNet,
-)
+import numpy as np
+import torch
+from gym.spaces import Box, Dict
+
+from habitat.config import Config
+from habitat_baselines.common.baseline_registry import baseline_registry
+from habitat_baselines.rl.ppo.policy import PointNavBaselineNet, Policy
 from habitat_baselines.rl.ppo.sequential import (
     ckpt_to_policy,
     get_blank_params,
 )
-from gym.spaces import Box, Dict
-import torch
-
-from habitat.config import Config
-from habitat_baselines.common.baseline_registry import baseline_registry
-from habitat_baselines.utils.common import batch_obs, ObservationBatchingCache
-
+from habitat_baselines.utils.common import ObservationBatchingCache, batch_obs
 
 ARM_ACTIONS = 4  # 4 controllable joints
 BASE_ACTIONS = 2  # linear and angular vel
 EXPERT_NAV_UUID = "expert_nav"
 EXPERT_GAZE_UUID = "expert_gaze"
 EXPERT_MASKS_UUID = "expert_masks"
+VISUAL_FEATURES_UUID = "visual_features"
 
 
 @baseline_registry.register_policy
@@ -34,9 +32,24 @@ class NavGazeMixtureOfExpertsRes(Policy):
         num_environments,
         hidden_size: int = 512,
         train_critic_only=False,
+        force_blind=False,
         *args,
         **kwargs,
     ):
+        # Determines if we use visual observations or features from experts
+        self.blind = force_blind
+        observation_space_copy = Dict(observation_space.spaces.copy())
+        if self.blind:
+            vis_keys = [
+                k for k in observation_space.spaces.keys() if "depth" in k
+            ]
+            for k in vis_keys:
+                observation_space.spaces.pop(k)
+            # Add visual features to the observation space
+            observation_space.spaces[VISUAL_FEATURES_UUID] = Box(
+                -np.inf, np.inf, (hidden_size * 2,)
+            )
+
         # Add expert actions to the observation space and fuse_states
         observation_space.spaces[EXPERT_NAV_UUID] = Box(
             -1.0, 1.0, (BASE_ACTIONS,)
@@ -53,7 +66,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
                 hidden_size=hidden_size,
                 goal_hidden_size=goal_hidden_size,
                 fuse_states=fuse_states,
-                force_blind=False,
+                force_blind=force_blind,
             ),
             action_space,
             **kwargs,
@@ -77,8 +90,17 @@ class NavGazeMixtureOfExpertsRes(Policy):
         # Load pre-trained experts
         nav_ckpt = torch.load(nav_checkpoint_path, map_location=self.device)
         gaze_ckpt = torch.load(gaze_checkpoint_path, map_location=self.device)
-        self.expert_nav_policy = ckpt_to_policy(nav_ckpt, observation_space)
-        self.expert_gaze_policy = ckpt_to_policy(gaze_ckpt, observation_space)
+        self.expert_nav_policy = ckpt_to_policy(
+            nav_ckpt, observation_space_copy
+        )
+        self.expert_gaze_policy = ckpt_to_policy(
+            gaze_ckpt, observation_space_copy
+        )
+
+        # Freeze expert weights
+        for name, param in self.named_parameters():
+            if "expert" in name:
+                param.requires_grad = False
 
         self.nav_rnn_hx, _, self.nav_prev_actions = get_blank_params(
             nav_ckpt["config"],
@@ -111,6 +133,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
             num_environments=config.NUM_ENVIRONMENTS,
             hidden_size=config.RL.PPO.hidden_size,
             train_critic_only=config.RL.get("train_critic_only", False),
+            force_blind=config.RL.POLICY.force_blind,
         )
 
     def to(self, device, *args):
@@ -170,6 +193,23 @@ class NavGazeMixtureOfExpertsRes(Policy):
             observations[index_env][EXPERT_GAZE_UUID] = self.gaze_action[
                 index_env
             ].numpy()
+
+            if self.blind:
+                # Remove visual observations
+                vis_keys = [
+                    k for k in observations[index_env].keys() if "depth" in k
+                ]
+                for k in vis_keys:
+                    observations[index_env].pop(k)
+
+                # Add visual features from the experts
+                visual_features = [
+                    p.net.pred_visual_features[index_env]
+                    for p in [self.expert_nav_policy, self.expert_gaze_policy]
+                ]
+                observations[index_env][VISUAL_FEATURES_UUID] = (
+                    torch.cat(visual_features).cpu().numpy()
+                )
 
         return observations
 
@@ -243,6 +283,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             train_critic_only=config.RL.get("train_critic_only", False),
             residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
             use_residuals=config.RL.POLICY.use_residuals,
+            force_blind=config.RL.POLICY.force_blind,
         )
 
     def act(
@@ -277,15 +318,6 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         ) = torch.split(
             action, [ARM_ACTIONS, BASE_ACTIONS, self.num_masks], dim=1
         )
-
-        # Zero out low residual values
-        def zero_out_low_values(act):
-            low_act = torch.logical_and(-0.1 < act, act < 0.1)
-            # Use 1e-6, not 0.0, because it can break backprop
-            return torch.where(low_act, torch.full_like(act, 1e-6), act)
-
-        residual_arm_actions = zero_out_low_values(residual_arm_actions)
-        residual_base_actions = zero_out_low_values(residual_base_actions)
 
         # Generate arm and base action mask for later use (self.action_to_dict)
         self.get_action_masks(expert_masks)
@@ -401,6 +433,7 @@ class NavGazeMixtureOfExpertsMaskSingle(NavGazeMixtureOfExpertsMask):
             train_critic_only=config.RL.get("train_critic_only", False),
             residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
             use_residuals=config.RL.POLICY.use_residuals,
+            force_blind=config.RL.POLICY.force_blind,
         )
 
     def get_action_masks(self, expert_masks):
@@ -448,7 +481,6 @@ class NavGazeMixtureOfExpertsMaskCombo(NavGazeMixtureOfExpertsMask):
         self.gaze_combo_ids = filter_valid_combos([1, 2])
         self.place_combo_ids = filter_valid_combos([3, 4])
 
-
     @classmethod
     def from_config(
         cls, config: Config, observation_space: Dict, action_space
@@ -467,6 +499,7 @@ class NavGazeMixtureOfExpertsMaskCombo(NavGazeMixtureOfExpertsMask):
             num_environments=config.NUM_ENVIRONMENTS,
             hidden_size=config.RL.PPO.hidden_size,
             train_critic_only=config.RL.get("train_critic_only", False),
+            force_blind=config.RL.POLICY.force_blind,
             residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
             num_combos=num_combos,
             freeze_residuals=config.RL.POLICY.freeze_residuals,
