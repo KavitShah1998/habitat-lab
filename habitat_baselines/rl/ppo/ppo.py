@@ -50,7 +50,7 @@ class PPO(nn.Module):
 
         try:
             self.optimizer = optim.Adam(
-                list(filter(lambda p: p.requires_grad, actor_critic.parameters())),
+                [p for p in actor_critic.parameters() if p.requires_grad],
                 lr=lr,
                 eps=eps,
             )
@@ -60,7 +60,7 @@ class PPO(nn.Module):
         try:
             self.device = next(actor_critic.parameters()).device
         except StopIteration:
-            print('No trainable parameters found. PPO device set to cpu.')
+            print("No trainable parameters found. PPO device set to cpu.")
             self.device = torch.device("cpu")
 
         self.use_normalized_advantage = use_normalized_advantage
@@ -145,10 +145,6 @@ class PPO(nn.Module):
                     self.after_backward(total_loss)
                 else:
                     print("TOTAL LOSS WAS NaN!! SKIPPING BACKPROP")
-
-                self.before_backward(total_loss)
-                total_loss.backward()
-                self.after_backward(total_loss)
 
                 self.before_step()
                 self.optimizer.step()
