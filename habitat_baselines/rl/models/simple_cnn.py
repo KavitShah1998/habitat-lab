@@ -168,19 +168,34 @@ class SimpleCNN(nn.Module):
         for k in self.use_rgb_keys:
             if k in observations:
                 rgb_observations = observations[k]
-                # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
+                # permute tensor to [BATCH x CHANNEL x HEIGHT X WIDTH]
                 rgb_observations = rgb_observations.permute(0, 3, 1, 2)
                 rgb_observations = (
                     rgb_observations.float() / 255.0
                 )  # normalize RGB
                 cnn_input.append(rgb_observations)
+        using_arm_depth = False
         for k in self.use_depth_keys:
             if k in observations:
                 depth_observations = observations[k]
-                # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
+                # permute tensor to [BATCH x CHANNEL x HEIGHT X WIDTH]
                 depth_observations = depth_observations.permute(0, 3, 1, 2)
                 cnn_input.append(depth_observations)
+                if k in ARM_VISION_KEYS:
+                    using_arm_depth = True
 
         cnn_inputs = torch.cat(cnn_input, dim=1)
 
-        return self.cnn(cnn_inputs)
+        # [BATCH x OUTPUT_SIZE (512)]
+        visual_features = self.cnn(cnn_inputs)
+
+        if using_arm_depth:
+            # Mask out visual features where corresponding image was just zeros
+            non_zero_idxs = torch.nonzero(torch.sum(cnn_inputs, (1, 2, 3)))
+            print(12312, non_zero_idxs)
+            visual_features_mask = torch.zeros_like(visual_features)
+            visual_features_mask[non_zero_idxs] = 1.0
+
+            visual_features = visual_features * visual_features_mask
+
+        return visual_features
