@@ -21,16 +21,17 @@ from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.rl.models.rnn_state_encoder import (
     build_rnn_state_encoder,
 )
-from habitat_baselines.rl.models.simple_cnn import SimpleCNN
+from habitat_baselines.rl.models.simple_cnn import (
+    ARM_VISION_KEYS,
+    HEAD_VISION_KEYS,
+    SimpleCNN,
+)
 from habitat_baselines.utils.common import (
     CategoricalNet,
     GaussianCategoricalNet,
     GaussianNet,
     initialized_linear,
 )
-
-ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
-HEAD_VISION_KEYS = ["depth", "rgb"]
 
 
 class Policy(nn.Module, metaclass=abc.ABCMeta):
@@ -200,13 +201,9 @@ class PointNavBaselineNet(Net):
         )
 
         # Construct CNNs
-        head_visual_inputs = 0
-        arm_visual_inputs = 0
-        for obs_key in observation_space.spaces.keys():
-            if obs_key in ARM_VISION_KEYS:
-                arm_visual_inputs += 1
-            elif obs_key in HEAD_VISION_KEYS:
-                head_visual_inputs += 1
+        o_keys = observation_space.spaces.keys()
+        head_visual_inputs = len([k for k in o_keys if k in HEAD_VISION_KEYS])
+        arm_visual_inputs = len([k for k in o_keys if k in ARM_VISION_KEYS])
         self.num_cnns = min(1, head_visual_inputs) + min(1, arm_visual_inputs)
 
         self._hidden_size = hidden_size
@@ -259,15 +256,7 @@ class PointNavBaselineNet(Net):
             )
 
         # Final RNN layer
-        if self.is_blind:
-            if "visual_features" in observation_space.spaces:
-                visual_size = observation_space.spaces[
-                    "visual_features"
-                ].shape[0]
-            else:
-                visual_size = 0
-        else:
-            visual_size = hidden_size * self.num_cnns
+        visual_size = 0 if self.is_blind else hidden_size * self.num_cnns
         self.state_encoder = build_rnn_state_encoder(
             visual_size + self._goal_hidden_size, self._hidden_size
         )
@@ -304,7 +293,7 @@ class PointNavBaselineNet(Net):
         elif "visual_features" in observations:
             x.append(observations["visual_features"])
 
-        # Save visual features for use by other policies
+        # Save visual features for use by other policies (mixer policy)
         self.pred_visual_features = torch.cat(x, dim=1)
 
         # Non-visual observations
