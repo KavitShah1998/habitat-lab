@@ -5,9 +5,16 @@ import torch
 from torch import nn as nn
 
 RGB_KEYS = ["rgb", "arm_rgb", "3rd_rgb"]
-DEPTH_KEYS = ["depth", "arm_depth", "3rd_depth", "arm_depth_bbox"]
 ARM_VISION_KEYS = ["arm_depth", "arm_rgb", "arm_depth_bbox"]
-HEAD_VISION_KEYS = ["depth", "rgb"]
+HEAD_VISION_KEYS = [
+    "depth",
+    "rgb",
+    "spot_left_depth",
+    "spot_right_depth",
+    "spot_left_rgb",
+    "spot_right_rgb",
+]
+DEPTH_KEYS = [i for i in ARM_VISION_KEYS + HEAD_VISION_KEYS if "depth" in i]
 
 
 def reject_obs_key(key, head_only, arm_only):
@@ -40,6 +47,7 @@ class SimpleCNN(nn.Module):
         arm_only=False,
     ):
         super().__init__()
+
         if force_blind:
             self.cnn = nn.Sequential()
             self._n_input_rgb = 0
@@ -50,13 +58,23 @@ class SimpleCNN(nn.Module):
 
         rgb_shape = None
         self._n_input_rgb = 0
-        for k in RGB_KEYS:
-            if k in observation_space.spaces and not reject_obs_key(
-                k, head_only, arm_only
-            ):
-                self._n_input_rgb += 3
-                rgb_shape = observation_space.spaces[k].shape[:2]
-                self.use_rgb_keys.append(k)
+        # HACK: Never use RGB for policies.
+        # for k in RGB_KEYS:
+        #     if k in observation_space.spaces and not reject_obs_key(
+        #         k, head_only, arm_only
+        #     ):
+        #         self._n_input_rgb += 3
+        #         rgb_shape = observation_space.spaces[k].shape[:2]
+        #         self.use_rgb_keys.append(k)
+
+        # Ensure both the single camera AND two camera setup is NOT being used
+        self.using_one_camera = "depth" in observation_space.spaces
+        self.using_two_cameras = (
+            "spot_left_depth" in observation_space.spaces
+            or "spot_right_depth" in observation_space.spaces
+        )
+        assert not (self.using_one_camera and self.using_two_cameras)
+
         depth_shape = None
         self._n_input_depth = 0
         for k in DEPTH_KEYS:
@@ -66,6 +84,16 @@ class SimpleCNN(nn.Module):
                 self._n_input_depth += 1
                 depth_shape = observation_space.spaces[k].shape[:2]
                 self.use_depth_keys.append(k)
+
+        if self.using_two_cameras:
+            # Ensure both eyes are being used if at all
+            eyes = ["spot_left_depth", "spot_right_depth"]
+            assert all([i in observation_space.spaces for i in eyes])
+            # Revert num_channels from 2 to 1
+            self._n_input_depth = 1
+            # Make depth_shape twice as wide
+            height, width = depth_shape
+            depth_shape = np.array([height, width * 2], dtype=np.float32)
 
         # kernel size for different CNN layers
         self._cnn_layers_kernel_size = [(8, 8), (4, 4), (3, 3)]
@@ -175,15 +203,27 @@ class SimpleCNN(nn.Module):
                 )  # normalize RGB
                 cnn_input.append(rgb_observations)
         using_arm_depth = False
-        for k in self.use_depth_keys:
-            if k in observations:
-                depth_observations = observations[k]
-                # permute tensor to [BATCH x CHANNEL x HEIGHT X WIDTH]
-                depth_observations = depth_observations.permute(0, 3, 1, 2)
-                cnn_input.append(depth_observations)
-                if k in ARM_VISION_KEYS:
-                    using_arm_depth = True
+        depth_observations = []
+        if self.using_two_cameras:
+            depth_observations.append(
+                torch.cat(
+                    [
+                        # Spot is cross-eyed; right is on the left on the FOV
+                        observations["spot_right_depth"],
+                        observations["spot_left_depth"],
+                    ],
+                    dim=2,
+                )
+            )
+        else:
+            for k in self.use_depth_keys:
+                if k in observations:
+                    depth_observations.append(observations[k])
+                    if k in ARM_VISION_KEYS:
+                        using_arm_depth = True
 
+        # permute tensors to [BATCH x CHANNEL x HEIGHT X WIDTH]
+        cnn_input.extend([d.permute(0, 3, 1, 2) for d in depth_observations])
         cnn_inputs = torch.cat(cnn_input, dim=1)
 
         # [BATCH x OUTPUT_SIZE (512)]
@@ -192,7 +232,6 @@ class SimpleCNN(nn.Module):
         if using_arm_depth:
             # Mask out visual features where corresponding image was just zeros
             non_zero_idxs = torch.nonzero(torch.sum(cnn_inputs, (1, 2, 3)))
-            print(12312, non_zero_idxs)
             visual_features_mask = torch.zeros_like(visual_features)
             visual_features_mask[non_zero_idxs] = 1.0
 
