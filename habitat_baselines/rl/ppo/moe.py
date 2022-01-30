@@ -4,6 +4,7 @@ from gym.spaces import Box, Dict
 
 from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
+from habitat_baselines.rl.ppo.moe_v2 import MoePolicy
 from habitat_baselines.rl.ppo.policy import PointNavBaselineNet, Policy
 from habitat_baselines.rl.ppo.sequential import (
     ckpt_to_policy,
@@ -20,7 +21,7 @@ VISUAL_FEATURES_UUID = "visual_features"
 
 
 @baseline_registry.register_policy
-class NavGazeMixtureOfExpertsRes(Policy):
+class NavGazeMixtureOfExpertsRes(MoePolicy):
     def __init__(
         self,
         observation_space: Dict,
@@ -49,6 +50,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
             observation_space.spaces[VISUAL_FEATURES_UUID] = Box(
                 -np.inf, np.inf, (hidden_size * 2,)
             )
+            fuse_states = [VISUAL_FEATURES_UUID] + fuse_states
 
         # Add expert actions to the observation space and fuse_states
         observation_space.spaces[EXPERT_NAV_UUID] = Box(
@@ -60,16 +62,12 @@ class NavGazeMixtureOfExpertsRes(Policy):
         fuse_states.extend([EXPERT_NAV_UUID, EXPERT_GAZE_UUID])
 
         # Instantiate MoE's own policy
+        # TODO: don't hardcode
         super().__init__(
-            PointNavBaselineNet(
-                observation_space=observation_space,
-                hidden_size=hidden_size,
-                goal_hidden_size=goal_hidden_size,
-                fuse_states=fuse_states,
-                force_blind=force_blind,
-            ),
-            action_space,
-            **kwargs,
+            observation_space,
+            fuse_states=fuse_states,
+            num_gates=1,
+            num_actions=6,
         )
 
         # For RolloutStorage in ppo_trainer.py
@@ -202,7 +200,7 @@ class NavGazeMixtureOfExpertsRes(Policy):
                 for k in vis_keys:
                     observations[index_env].pop(k)
 
-                # Add visual features from the experts
+                # Stitch and add visual features from the experts
                 visual_features = [
                     p.net.pred_visual_features[index_env]
                     for p in [self.expert_nav_policy, self.expert_gaze_policy]

@@ -159,7 +159,10 @@ class PPOTrainer(BaseRLTrainer):
             self.config, observation_space, self.envs.action_spaces[0]
         )
         print("Actor-critic architecture:\n", self.actor_critic)
-        if hasattr(self.actor_critic.net, "fuse_states"):
+        if hasattr(self.actor_critic, "fuse_states"):
+            fuse_states_list = "\n - ".join(self.actor_critic.fuse_states)
+            print("Fuse states:\n -", fuse_states_list)
+        elif hasattr(self.actor_critic.net, "fuse_states"):
             fuse_states_list = "\n - ".join(self.actor_critic.net.fuse_states)
             print("Fuse states:\n -", fuse_states_list)
         self.obs_space = observation_space
@@ -185,16 +188,23 @@ class PPOTrainer(BaseRLTrainer):
                         for k, v in pretrained_state["state_dict"].items()
                     }
                 )
-            except KeyError:
-                prefix = "actor_critic."
-                self.actor_critic.load_state_dict(
-                    {
-                        k[len(prefix) :]: v
-                        if "expert" not in k
-                        else orig_state_dict[k[len(prefix) :]]
-                        for k, v in pretrained_state["state_dict"].items()
-                    }
-                )
+            except:
+                try:
+                    prefix = "actor_critic."
+                    self.actor_critic.load_state_dict(
+                        {
+                            k[len(prefix) :]: v
+                            if "expert" not in k
+                            else orig_state_dict[k[len(prefix) :]]
+                            for k, v in pretrained_state["state_dict"].items()
+                        }
+                    )
+                except:
+                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                    print("!!!!!!LOADING PRETRAINED WEIGHTS FAILED!!!!!!")
+                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         elif self.config.RL.DDPPO.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
             self.actor_critic.net.visual_encoder.load_state_dict(
@@ -231,8 +241,8 @@ class PPOTrainer(BaseRLTrainer):
         import sys
 
         sys.path.insert(0, "./")
-        from orp_env_adapter import get_hab_envs, get_hab_args
         from method.orp_policy_adapter import HabPolicy
+        from orp_env_adapter import get_hab_args, get_hab_envs
 
         if config is None:
             config = self.config
@@ -349,13 +359,17 @@ class PPOTrainer(BaseRLTrainer):
             self.policy_action_space = self.actor_critic.policy_action_space
         else:
             self.policy_action_space = self.envs.action_spaces[0]
+        if hasattr(self.actor_critic, "net"):
+            num_rnn_layers = self.actor_critic.net.num_recurrent_layers
+        else:
+            num_rnn_layers = 0
         self.rollouts = RolloutStorage(
             ppo_cfg.num_steps,
             self.envs.num_envs,
             obs_space,
             self.policy_action_space,
             ppo_cfg.hidden_size,
-            num_recurrent_layers=self.actor_critic.net.num_recurrent_layers,
+            num_recurrent_layers=num_rnn_layers,
             is_double_buffered=ppo_cfg.use_double_buffered_sampler,
         )
         self.rollouts.to(self.device)
@@ -1243,8 +1257,9 @@ class PPOTrainer(BaseRLTrainer):
                 if hasattr(self.actor_critic, "action_to_dict"):
                     step_data = [
                         self.actor_critic.action_to_dict(act, index_env)
-                        for index_env, act in
-                        enumerate(actions.cpu().unbind(0))
+                        for index_env, act in enumerate(
+                            actions.cpu().unbind(0)
+                        )
                     ]
                 elif self.config.RL.POLICY.name == "NavGazeMixtureOfExperts":
                     step_data = self.actor_critic.choose_mix_of_actions(
