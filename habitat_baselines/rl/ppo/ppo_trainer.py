@@ -1091,12 +1091,13 @@ class PPOTrainer(BaseRLTrainer):
                 self.agent.actor_critic.load_state_dict(
                     ckpt_dict["state_dict"]
                 )
-            except:
+            except Exception as e:
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                raise e
 
         self.actor_critic = self.agent.actor_critic
 
@@ -1139,9 +1140,14 @@ class PPOTrainer(BaseRLTrainer):
             self.envs.num_envs, 1, device="cpu"
         )
 
+        if hasattr(self.actor_critic, "net"):
+            num_rnn_layers = self.actor_critic.net.num_recurrent_layers
+        else:
+            num_rnn_layers = 0
+
         test_recurrent_hidden_states = torch.zeros(
             self.config.NUM_ENVIRONMENTS,
-            self.actor_critic.net.num_recurrent_layers,
+            num_rnn_layers,
             ppo_cfg.hidden_size,
             device=self.device,
         )

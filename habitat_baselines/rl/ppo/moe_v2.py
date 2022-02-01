@@ -3,8 +3,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-import abc
-
 import numpy as np
 import torch
 from torch import nn as nn
@@ -44,16 +42,16 @@ class MoePolicy(Policy, nn.Module):
             [observation_space.spaces[n].shape[0] for n in self.fuse_states]
         )
 
-        # Gating actor
-        self.gating_actor = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            GaussianNet(hidden_size, num_gates),
-        )
-
         # Residual actor
         self.residual_actor = nn.Sequential(
             *construct_mlp_base(input_size, hidden_size),
             GaussianNet(hidden_size, num_actions),
+        )
+
+        # Gating actor
+        self.gating_actor = nn.Sequential(
+            *construct_mlp_base(input_size, hidden_size),
+            GaussianNet(hidden_size, num_gates),
         )
 
         # Critic
@@ -78,20 +76,20 @@ class MoePolicy(Policy, nn.Module):
         deterministic=False,
     ):
         (
-            gating_distribution,
             residual_distribution,
+            gating_distribution,
             value,
         ) = self.compute_actions_and_value(observations)
 
         action_and_log_probs = []
-        for d in [gating_distribution, residual_distribution]:
+        for d in [residual_distribution, gating_distribution]:
             act = d.mode() if deterministic else d.sample()
             log_probs = d.log_probs(act)
             action_and_log_probs.extend([act, log_probs])
-        gate_act, gate_log_p, res_act, res_log_p = action_and_log_probs
+        res_act, res_log_p, gate_act, gate_log_p = action_and_log_probs
 
-        action = torch.cat([gate_act, res_act], dim=1)
-        action_log_probs = gate_log_p + res_log_p
+        action = torch.cat([res_act, gate_act], dim=1)
+        action_log_probs = res_log_p + gate_log_p
 
         return value, action, action_log_probs, rnn_hidden_states
 
@@ -102,31 +100,31 @@ class MoePolicy(Policy, nn.Module):
         self, observations, rnn_hidden_states, prev_actions, masks, action
     ):
         (
-            gating_distribution,
             residual_distribution,
+            gating_distribution,
             value,
         ) = self.compute_actions_and_value(observations)
 
-        gate_act, res_act = torch.split(
-            action, [self.num_gates, self.num_actions], dim=1
+        res_act, gate_act = torch.split(
+            action, [self.num_actions, self.num_gates], dim=1
         )
 
         action_log_probs = gating_distribution.log_probs(
-            gate_act
-        ) + residual_distribution.log_probs(res_act)
+            res_act
+        ) + residual_distribution.log_probs(gate_act)
         distribution_entropy = (
-            gating_distribution.entropy() + residual_distribution.entropy()
+            residual_distribution.entropy() + gating_distribution.entropy()
         )
 
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
 
     def compute_actions_and_value(self, observations):
         observations_tensor = self.obs_to_tensor(observations)
-        gating_distribution = self.gating_actor(observations_tensor)
         residual_distribution = self.residual_actor(observations_tensor)
+        gating_distribution = self.gating_actor(observations_tensor)
         value = self.critic(observations_tensor)
 
-        return gating_distribution, residual_distribution, value
+        return residual_distribution, gating_distribution, value
 
     def forward(self, *x):
         raise NotImplementedError

@@ -62,12 +62,12 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         fuse_states.extend([EXPERT_NAV_UUID, EXPERT_GAZE_UUID])
 
         # Instantiate MoE's own policy
-        # TODO: don't hardcode
+        # TODO: don't hardcode gate amount
         super().__init__(
             observation_space,
             fuse_states=fuse_states,
-            num_gates=1,
-            num_actions=6,
+            num_gates=2,
+            num_actions=BASE_ACTIONS + ARM_ACTIONS,
         )
 
         # For RolloutStorage in ppo_trainer.py
@@ -112,9 +112,17 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             self.device,
             num_envs=num_environments,
         )
+        self.nav_masks = torch.ones(num_environments, 1, dtype=torch.bool)
+        self.gaze_masks = torch.ones(num_environments, 1, dtype=torch.bool)
+        self.prev_nav_masks = torch.zeros(
+            num_environments, 1, dtype=torch.bool
+        )
+        self.prev_gaze_masks = torch.zeros(
+            num_environments, 1, dtype=torch.bool
+        )
         self.nav_action = None
         self.gaze_action = None
-        self.num_experts = 2
+        self.num_experts = 2  # TODO
         self._obs_batching_cache = ObservationBatchingCache()
 
     @classmethod
@@ -142,6 +150,10 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.gaze_prev_actions = self.gaze_prev_actions.to(device)
         self.expert_nav_policy = self.expert_nav_policy.to(device)
         self.expert_gaze_policy = self.expert_gaze_policy.to(device)
+        self.nav_masks = self.nav_masks.to(device)
+        self.gaze_masks = self.gaze_masks.to(device)
+        self.prev_nav_masks = self.prev_nav_masks.to(device)
+        self.prev_gaze_masks = self.prev_gaze_masks.to(device)
         self.device = device
 
     def transform_obs(self, observations, masks):
@@ -158,6 +170,9 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         masks_device = (
             masks.to(self.device) if masks.device != self.device else masks
         )
+        # print("self.gaze_masks", self.gaze_masks)
+        nav_masks = torch.logical_and(masks_device, self.nav_masks)
+        gaze_masks = torch.logical_and(masks_device, self.gaze_masks)
         with torch.no_grad():
             (
                 _,
@@ -165,7 +180,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 _,
                 self.nav_rnn_hx,
             ) = self.expert_nav_policy.act(
-                batch, self.nav_rnn_hx, self.nav_prev_actions, masks_device
+                batch, self.nav_rnn_hx, self.nav_prev_actions, nav_masks
             )
             (
                 _,
@@ -173,7 +188,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 _,
                 self.gaze_rnn_hx,
             ) = self.expert_gaze_policy.act(
-                batch, self.gaze_rnn_hx, self.gaze_prev_actions, masks_device
+                batch, self.gaze_rnn_hx, self.gaze_prev_actions, gaze_masks
             )
         self.nav_prev_actions.copy_(self.nav_action)
         self.gaze_prev_actions.copy_(self.gaze_action)
@@ -340,7 +355,14 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         activation_mask = torch.split(
             activation_mask, [1] * self.num_experts, dim=1
         )
+
+        def reset_hx(prev, curr):
+            prev_bool, curr_bool = torch.eq(prev, 1.0), torch.eq(curr, 1.0)
+            reset = torch.logical_and(torch.logical_not(prev_bool), curr_bool)
+            return torch.logical_not(reset)
+
         if self.num_experts == 2:
+            nav_masks, gaze_masks = activation_mask
             self.nav_action_mask, self.gaze_action_mask = [
                 m.repeat(1, num_actions)
                 for m, num_actions in zip(
@@ -349,6 +371,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             ]
             self.arm_action_mask = self.gaze_action_mask
         elif self.num_experts == 3:
+            nav_masks, gaze_masks, place_masks = activation_mask
             (
                 self.nav_action_mask,
                 self.gaze_action_mask,
@@ -365,6 +388,16 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             )
         else:
             raise NotImplementedError
+
+        # Zero out mask values indicating reselection of an expert
+        self.nav_masks = reset_hx(self.prev_nav_masks, nav_masks)
+        self.gaze_masks = reset_hx(self.prev_gaze_masks, gaze_masks)
+        # print("self.prev_gaze_masks", self.prev_gaze_masks)
+        # print("gaze_masks", gaze_masks)
+        if self.num_experts == 3:
+            raise NotImplementedError  # TODO
+        self.prev_nav_masks = nav_masks
+        self.prev_gaze_masks = gaze_masks
 
     def action_to_dict(self, action, index_env, use_residuals=True, **kwargs):
         if self.use_residuals is not None:

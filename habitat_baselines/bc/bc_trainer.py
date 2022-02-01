@@ -1,23 +1,23 @@
-from collections import deque
-from contextlib import ExitStack
 import os
 import os.path as osp
+from collections import deque
+from contextlib import ExitStack
+
 import numpy as np
 import torch
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
+from habitat import logger
 from habitat_baselines.common.base_trainer import BaseRLTrainer
 from habitat_baselines.common.baseline_registry import baseline_registry
-from habitat_baselines.utils.common import batch_obs
 from habitat_baselines.common.obs_transformers import (
     apply_obs_transforms_obs_space,
     get_active_obs_transforms,
 )
 from habitat_baselines.rl.ppo.sequential import get_blank_params
-
-from habitat import logger
+from habitat_baselines.utils.common import batch_obs
 
 EXPERT_NAV_UUID = "expert_nav"
 EXPERT_GAZE_UUID = "expert_gaze"
@@ -50,6 +50,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.envs = None
         self.success_deq = deque(maxlen=50)
         self.action_mse_deq = deque(maxlen=50)
+        self.frames = []
 
         # Extract params from config
         self.batches_per_save = config.BATCHES_PER_CHECKPOINT
@@ -89,7 +90,12 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 }
             )
         print("Actor-critic architecture:\n", self.moe)
-        print("Fuse states:\n", "\n ".join(self.moe.net.fuse_states))
+        if hasattr(self.moe, "fuse_states"):
+            fuse_states_list = "\n - ".join(self.moe.fuse_states)
+            print("Fuse states:\n -", fuse_states_list)
+        elif hasattr(self.moe.net, "fuse_states"):
+            fuse_states_list = "\n - ".join(self.moe.net.fuse_states)
+            print("Fuse states:\n -", fuse_states_list)
         self.moe.to(self.device)
 
         # Setup prev_actions, masks, and recurrent hidden states
@@ -169,7 +175,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 self.rnn_hidden_states,
                 self.prev_actions,
                 self.masks,
-                deterministic=False,
+                deterministic=True,
             )
         self.prev_actions.copy_(actions)
         if not no_grad:
@@ -232,8 +238,8 @@ class BehavioralCloningMoe(BaseRLTrainer):
         import sys
 
         sys.path.insert(0, "./")
-        from orp_env_adapter import get_hab_envs, get_hab_args
         from method.orp_policy_adapter import HabPolicy
+        from orp_env_adapter import get_hab_args, get_hab_envs
 
         policy = baseline_registry.get_policy(self.policy_name)
         if issubclass(policy, HabPolicy):
@@ -292,10 +298,28 @@ class BehavioralCloningMoe(BaseRLTrainer):
             # Accumulate loss across batch
             action_loss += loss
 
+            # import glob
+            #
+            # import imageio
+            #
+            # frame = self.envs.render(mode="rgb_array")[0]
+            # self.frames.append(frame)
+
             # Get episode stats
             for idx, done in enumerate(dones):
                 if done:
                     self.success_deq.append(infos[idx]["ep_success"])
+                    # if infos[idx]["ep_success"] < 1.0:
+                    #     count = len(
+                    #         glob.glob("/nethome/nyokoyama3/delme/*mp4")
+                    #     )
+                    #     vid_name = f"/nethome/nyokoyama3/delme/{count}.mp4"
+                    #     vid = imageio.get_writer(vid_name, fps=30)
+                    #     for im in self.frames:
+                    #         vid.append_data(im)
+                    #     vid.close()
+                    #     logger.info(f"Video created: {vid_name}")
+                    # self.frames = []
 
             if iteration % self._batch_length == 0:
                 # Run backpropagation using accumulated loss across batch
@@ -350,12 +374,16 @@ class BehavioralCloningMoeMask(BehavioralCloningMoe):
     def get_action_and_loss(self, batch):
         teacher_mask_labels = self.get_teacher_labels(batch)
         actions = self.get_student_actions(batch)
-        step_actions = self.stepify_actions(actions, use_residuals=False)
 
         # Calculate loss. We only care about the mask outputs for behavioral
         # cloning, not the residuals.
         mask_actions = actions[:, -self.moe.num_masks :]
         action_loss = F.mse_loss(mask_actions, teacher_mask_labels)
+
+        # # Use teacher masks
+        # self.moe.get_action_masks(teacher_mask_labels)
+
+        step_actions = self.stepify_actions(actions, use_residuals=False)
 
         # Not applicable for MoeMask; just say -1
         self.action_mse_deq.append(-1)

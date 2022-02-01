@@ -1,12 +1,12 @@
 from collections import OrderedDict
+
+import torch
 from gym import spaces
 from gym.spaces import Box
-import torch
 
 from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.rl.ppo.policy import PointNavBaselinePolicy
-
 
 """
 Assumption: we only deal with nav, pick, place, navpick, and navplace
@@ -32,7 +32,8 @@ Master observation and action spaces are decided by the
 
 NAVPICK = "navpick"
 NAVPLACE = "navplace"
-PICK = "rearrang_pick_analysis_bbox"
+# PICK = "rearrang_pick_analysis_bbox"
+PICK = "spot_gaze"
 PLACE = "rearrang_place_analysis"
 NAV = "nav_v2"
 
@@ -102,7 +103,11 @@ def get_blank_params(config, policy, device, num_envs=1):
         device=device,
     )
 
-    num_actions = policy.action_distribution.mu.out_features
+    if hasattr(policy, "action_distribution"):
+        num_actions = policy.action_distribution.mu.out_features
+    else:
+        # Assume this is a MoE v2
+        num_actions = policy.num_actions + policy.num_gates
     prev_actions = torch.zeros(
         num_envs,
         num_actions,
