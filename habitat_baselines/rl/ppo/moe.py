@@ -31,8 +31,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         goal_hidden_size,
         fuse_states,
         num_environments,
+        freeze_keys,
         hidden_size: int = 512,
-        train_critic_only=False,
         force_blind=False,
         *args,
         **kwargs,
@@ -76,11 +76,12 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         # Get model params before experts get loaded in
         self.model_params = [p for p in self.parameters() if p.requires_grad]
 
-        # Freeze non-critic weights if training only critic
-        if train_critic_only:
+        # Freeze weights that contain any freeze keys
+        for key in freeze_keys:
             for name, param in self.named_parameters():
-                if "critic" not in name:
+                if key in name:
                     param.requires_grad = False
+                    print("Freezing:", name)
 
         # Store tensors into CPU for now
         self.device = torch.device("cpu")
@@ -140,6 +141,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             hidden_size=config.RL.PPO.hidden_size,
             train_critic_only=config.RL.get("train_critic_only", False),
             force_blind=config.RL.POLICY.force_blind,
+            freeze_keys=config.RL.POLICY.freeze_keys,
         )
 
     def to(self, device, *args):
@@ -170,7 +172,6 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         masks_device = (
             masks.to(self.device) if masks.device != self.device else masks
         )
-        # print("self.gaze_masks", self.gaze_masks)
         nav_masks = torch.logical_and(masks_device, self.nav_masks)
         gaze_masks = torch.logical_and(masks_device, self.gaze_masks)
         with torch.no_grad():
@@ -297,6 +298,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
             use_residuals=config.RL.POLICY.use_residuals,
             force_blind=config.RL.POLICY.force_blind,
+            freeze_keys=config.RL.POLICY.freeze_keys,
         )
 
     def act(
@@ -392,8 +394,6 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         # Zero out mask values indicating reselection of an expert
         self.nav_masks = reset_hx(self.prev_nav_masks, nav_masks)
         self.gaze_masks = reset_hx(self.prev_gaze_masks, gaze_masks)
-        # print("self.prev_gaze_masks", self.prev_gaze_masks)
-        # print("gaze_masks", gaze_masks)
         if self.num_experts == 3:
             raise NotImplementedError  # TODO
         self.prev_nav_masks = nav_masks
