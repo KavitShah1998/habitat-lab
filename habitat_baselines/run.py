@@ -5,18 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import os.path as osp
 import random
 
 import numpy as np
 import torch
 
+import habitat_baselines.bc.bc_trainer
 from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.config.default import get_config
-import habitat_baselines.bc.bc_trainer
 
-# import pydevd_pycharm
-# pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -64,12 +63,14 @@ def execute_exp(config: Config, run_type: str) -> None:
     elif run_type == "eval":
         return trainer.eval()
 
+
 PATHS_TO_JUNK = {
-    'LOG_FILE': '/nethome/nyokoyama3/junk/train.log',
-    'CHECKPOINT_FOLDER': '/nethome/nyokoyama3/junk/',
-    'TENSORBOARD_DIR': '/nethome/nyokoyama3/junk/',
-    'VIDEO_DIR': '/nethome/nyokoyama3/junk/',
+    "LOG_FILE": "/nethome/nyokoyama3/junk/train.log",
+    "CHECKPOINT_FOLDER": "/nethome/nyokoyama3/junk/",
+    "TENSORBOARD_DIR": "/nethome/nyokoyama3/junk/",
+    "VIDEO_DIR": "/nethome/nyokoyama3/junk/",
 }
+
 
 def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     r"""Runs experiment given mode and config
@@ -82,25 +83,43 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     Returns:
         None.
     """
-    # for idx, i in enumerate(opts):
-    #     print(idx, i)
-    if 'JUNK' in opts:
-        idx = opts.index('JUNK')
-        opts.pop(idx)
-        opts.pop(idx)
-        for k,v in PATHS_TO_JUNK.items():
+    if "BASE_DIR" in opts:
+        base_dir_idx = opts.index("BASE_DIR")
+        base_dir = opts[base_dir_idx + 1]
+        for _ in range(2):
+            opts.pop(base_dir_idx)
+
+        assert "PREFIX" in opts
+        prefix = opts[opts.index("PREFIX") + 1]
+        slurm_dir = osp.join(base_dir, "slurm_files")
+        if osp.isdir(slurm_dir):
+            prefix = osp.join("slurm_files", prefix)
+
+        sub_paths = {
+            "LOG_FILE": prefix + ".log",
+            "CHECKPOINT_FOLDER": "checkpoints",
+            "TENSORBOARD_DIR": "tb",
+            "VIDEO_DIR": "videos",
+        }
+
+        for k, v in sub_paths.items():
+            opts.extend([k, osp.join(base_dir, v)])
+
+    if "JUNK" in opts:
+        junk_idx = opts.index("JUNK")
+        for _ in range(2):
+            opts.pop(junk_idx)
+        for k, v in PATHS_TO_JUNK.items():
             if k in opts:
-                opts[opts.index(k)+1] = v
+                opts[opts.index(k) + 1] = v
             else:
                 opts.extend([k, v])
 
-    # for idx, i in enumerate(opts):
-    #     print(idx, i)
-    if 'RL.POLICY.fuse_states' in opts:
-        i = opts.index('RL.POLICY.fuse_states')
-        opts[i+1] = opts[i+1].split(',')
-        if len(opts[i+1]) == 1 and opts[i+1][0] == '':
-            opts[i+1] = []
+    if "RL.POLICY.fuse_states" in opts:
+        i = opts.index("RL.POLICY.fuse_states")
+        opts[i + 1] = opts[i + 1].split(",")
+        if len(opts[i + 1]) == 1 and opts[i + 1][0] == "":
+            opts[i + 1] = []
 
     config = get_config(exp_config, opts)
     execute_exp(config, run_type)
