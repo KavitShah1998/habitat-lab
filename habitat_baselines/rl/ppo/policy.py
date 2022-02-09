@@ -262,6 +262,7 @@ class PointNavBaselineNet(Net):
         )
 
         self.pred_visual_features = None
+        self.vis_feats_queued = False
 
         self.train()
 
@@ -277,7 +278,7 @@ class PointNavBaselineNet(Net):
     def num_recurrent_layers(self):
         return self.state_encoder.num_recurrent_layers
 
-    def forward(self, observations, rnn_hidden_states, prev_actions, masks):
+    def get_vis_feats(self, observations):
         # Convert double to float if found
         for k, v in observations.items():
             if v.dtype is torch.float64:
@@ -295,6 +296,18 @@ class PointNavBaselineNet(Net):
 
         # Save visual features for use by other policies (mixer policy)
         self.pred_visual_features = torch.cat(x, dim=1) if x else None
+        # self.vis_feats_queued = True
+        self.vis_feats_queued = False
+        return self.pred_visual_features
+
+    def forward(self, observations, rnn_hidden_states, prev_actions, masks):
+        x = []
+        if not self.is_blind:
+            if self.vis_feats_queued:
+                x.append(self.pred_visual_features)
+            else:
+                x.append(self.get_vis_feats(observations))
+            self.vis_feats_queued = False
 
         # Non-visual observations
         if len(self.fuse_states) > 0:

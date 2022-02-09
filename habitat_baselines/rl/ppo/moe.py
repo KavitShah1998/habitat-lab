@@ -23,22 +23,21 @@ VISUAL_FEATURES_UUID = "visual_features"
 @baseline_registry.register_policy
 class NavGazeMixtureOfExpertsRes(MoePolicy):
     def __init__(
-        self,
-        observation_space: Dict,
-        action_space,
-        nav_checkpoint_path,
-        gaze_checkpoint_path,
-        goal_hidden_size,
-        fuse_states,
-        num_environments,
-        freeze_keys,
-        hidden_size: int = 512,
-        force_blind=False,
-        *args,
-        **kwargs,
+        self, observation_space: Dict, action_space, config, *args, **kwargs
     ):
+        # First, immediately extract values from config for clarity
+        num_environments = config.NUM_ENVIRONMENTS
+        hidden_size = config.RL.PPO.hidden_size
+        nav_checkpoint_path = config.RL.POLICY.nav_checkpoint_path
+        gaze_checkpoint_path = config.RL.POLICY.gaze_checkpoint_path
+        freeze_keys = config.RL.POLICY.freeze_keys
+        self.fuse_states = config.RL.POLICY.fuse_states
+        self.blind = config.RL.POLICY.force_blind
+        self.obs_expert_actions = config.RL.POLICY.get(
+            "obs_teacher_actions", True
+        )
+
         # Determines if we use visual observations or features from experts
-        self.blind = force_blind
         observation_space_copy = Dict(observation_space.spaces.copy())
         if self.blind:
             vis_keys = [
@@ -50,22 +49,23 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             observation_space.spaces[VISUAL_FEATURES_UUID] = Box(
                 -np.inf, np.inf, (hidden_size * 2,)
             )
-            fuse_states = [VISUAL_FEATURES_UUID] + fuse_states
+            self.fuse_states = [VISUAL_FEATURES_UUID] + self.fuse_states
 
-        # Add expert actions to the observation space and fuse_states
-        observation_space.spaces[EXPERT_NAV_UUID] = Box(
-            -1.0, 1.0, (BASE_ACTIONS,)
-        )
-        observation_space.spaces[EXPERT_GAZE_UUID] = Box(
-            -1.0, 1.0, (ARM_ACTIONS,)
-        )
-        fuse_states.extend([EXPERT_NAV_UUID, EXPERT_GAZE_UUID])
+        if self.obs_expert_actions:
+            # Add expert actions to the` observation space and fuse_states
+            observation_space.spaces[EXPERT_NAV_UUID] = Box(
+                -1.0, 1.0, (BASE_ACTIONS,)
+            )
+            observation_space.spaces[EXPERT_GAZE_UUID] = Box(
+                -1.0, 1.0, (ARM_ACTIONS,)
+            )
+            self.fuse_states.extend([EXPERT_NAV_UUID, EXPERT_GAZE_UUID])
 
         # Instantiate MoE's own policy
         # TODO: don't hardcode gate amount
         super().__init__(
             observation_space,
-            fuse_states=fuse_states,
+            fuse_states=self.fuse_states,
             num_gates=2,
             num_actions=BASE_ACTIONS + ARM_ACTIONS,
         )
@@ -78,6 +78,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
 
         # Freeze weights that contain any freeze keys
         for key in freeze_keys:
+            if key == "None":
+                continue
             for name, param in self.named_parameters():
                 if key in name:
                     param.requires_grad = False
@@ -133,15 +135,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         return cls(
             observation_space=observation_space,
             action_space=action_space,
-            nav_checkpoint_path=config.RL.POLICY.nav_checkpoint_path,
-            gaze_checkpoint_path=config.RL.POLICY.gaze_checkpoint_path,
-            goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0),
-            fuse_states=config.RL.POLICY.fuse_states,
-            num_environments=config.NUM_ENVIRONMENTS,
-            hidden_size=config.RL.PPO.hidden_size,
-            train_critic_only=config.RL.get("train_critic_only", False),
-            force_blind=config.RL.POLICY.force_blind,
-            freeze_keys=config.RL.POLICY.freeze_keys,
+            config=config,
         )
 
     def to(self, device, *args):
@@ -158,17 +152,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.prev_gaze_masks = self.prev_gaze_masks.to(device)
         self.device = device
 
-    def transform_obs(self, observations, masks):
-        """
-        Inserts expert actions into the observations
-
-        :param observations: list of dictionaries
-        :param masks: torch tensor.bool
-        :return: observations with expert actions
-        """
-        batch = batch_obs(
-            observations, device=self.device, cache=self._obs_batching_cache
-        )
+    def get_expert_actions(self, batch, masks):
         masks_device = (
             masks.to(self.device) if masks.device != self.device else masks
         )
@@ -198,15 +182,42 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.nav_action = self.nav_action.detach().cpu()
         self.gaze_action = self.gaze_action.detach().cpu()
 
+    def transform_obs(self, observations, masks):
+        """
+        Inserts expert actions into the observations
+
+        :param observations: list of dictionaries
+        :param masks: torch tensor.bool
+        :return: observations with expert actions
+        """
+        # If we observe expert actions, compute them now
+        if self.obs_expert_actions:
+            batch = batch_obs(
+                observations,
+                device=self.device,
+                cache=self._obs_batching_cache,
+            )
+            self.get_expert_actions(batch, masks)
+        elif VISUAL_FEATURES_UUID in self.fuse_states:
+            # We still need to use the experts for their visual encoders
+            batch = batch_obs(
+                observations,
+                device=self.device,
+                cache=self._obs_batching_cache,
+            )
+            self.expert_nav_policy.net.get_vis_feats(batch)
+            self.expert_gaze_policy.net.get_vis_feats(batch)
+
         # Insert into each observation; batch_obs loads these into gpu later
         num_envs = len(observations)
         for index_env in range(num_envs):
-            observations[index_env][EXPERT_NAV_UUID] = self.nav_action[
-                index_env
-            ].numpy()
-            observations[index_env][EXPERT_GAZE_UUID] = self.gaze_action[
-                index_env
-            ].numpy()
+            if self.obs_expert_actions:
+                observations[index_env][EXPERT_NAV_UUID] = self.nav_action[
+                    index_env
+                ].numpy()
+                observations[index_env][EXPERT_GAZE_UUID] = self.gaze_action[
+                    index_env
+                ].numpy()
 
             if self.blind:
                 # Remove visual observations
@@ -231,9 +242,6 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         # Merge mixer's actions with experts'
         gaze_action = self.gaze_action[index_env]
         nav_action = self.nav_action[index_env]
-        # experts_action = torch.cat([gaze_action, nav_action])
-        # step_action = experts_action + action
-        # step_action = experts_action
         step_action = action.to(torch.device("cpu"))
 
         # Add expert actions as action_args for reward calculation in RLEnv
@@ -246,6 +254,28 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         }
 
         return step_data
+
+    def act(
+        self,
+        observations,
+        rnn_hidden_states,
+        prev_actions,
+        masks,
+        deterministic=False,
+    ):
+        value, action, action_log_probs, rnn_hidden_states = super().act(
+            observations,
+            rnn_hidden_states,
+            prev_actions,
+            masks,
+            deterministic,
+        )
+
+        # If expert actions were not observed, update them now
+        if not self.obs_expert_actions:
+            self.get_expert_actions(observations, masks)
+
+        return value, action, action_log_probs, rnn_hidden_states
 
 
 @baseline_registry.register_policy
@@ -262,19 +292,8 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
     cannot be generated in the ppo.py script.
     """
 
-    def __init__(self, residuals_on_inactive, use_residuals, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.residuals_on_inactive = residuals_on_inactive
-        self.use_residuals = use_residuals
-        self.nav_action_mask = None
-        self.gaze_action_mask = None
-        self.place_action_mask = None
-        self.arm_action_mask = None
-        self.num_masks = self.num_experts
-
-    @classmethod
-    def from_config(
-        cls, config: Config, observation_space: Dict, action_space
+    def __init__(
+        self, observation_space, action_space, config, *args, **kwargs
     ):
         """Add actions for masking experts"""
         if config.RL.POLICY.get("place_checkpoint_path", "") == "":
@@ -284,22 +303,16 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         actual_action_space = Box(
             -1.0, 1.0, (action_space.shape[0] + num_experts,)
         )
-
-        return cls(
-            observation_space=observation_space,
-            action_space=actual_action_space,
-            nav_checkpoint_path=config.RL.POLICY.nav_checkpoint_path,
-            gaze_checkpoint_path=config.RL.POLICY.gaze_checkpoint_path,
-            goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0),
-            fuse_states=config.RL.POLICY.fuse_states,
-            num_environments=config.NUM_ENVIRONMENTS,
-            hidden_size=config.RL.PPO.hidden_size,
-            train_critic_only=config.RL.get("train_critic_only", False),
-            residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
-            use_residuals=config.RL.POLICY.use_residuals,
-            force_blind=config.RL.POLICY.force_blind,
-            freeze_keys=config.RL.POLICY.freeze_keys,
+        super().__init__(
+            observation_space, actual_action_space, config, *args, **kwargs
         )
+        self.residuals_on_inactive = config.RL.POLICY.residuals_on_inactive
+        self.use_residuals = config.RL.POLICY.use_residuals
+        self.nav_action_mask = None
+        self.gaze_action_mask = None
+        self.place_action_mask = None
+        self.arm_action_mask = None
+        self.num_masks = self.num_experts
 
     def act(
         self,
@@ -308,6 +321,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         prev_actions,
         masks,
         deterministic=False,
+        update_masks=True,
     ):
         """
         The residual actions need to be masked by the mask outputs in order for
@@ -334,11 +348,13 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             action, [ARM_ACTIONS, BASE_ACTIONS, self.num_masks], dim=1
         )
 
-        # Generate arm and base action mask for later use (self.action_to_dict)
-        self.get_action_masks(expert_masks)
+        # Update_masks could be False for teacher-forcing
+        if update_masks:
+            # Generate arm and base action masks
+            self.get_action_masks(expert_masks)
 
         if self.residuals_on_inactive:
-            # Residuals for unselected (inactive) experts are negated here
+            # Residuals for NOT-selected (inactive) experts are ZERO-ED here
             residual_arm_actions = residual_arm_actions * (
                 1.0 - self.arm_action_mask
             )
@@ -359,6 +375,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         )
 
         def reset_hx(prev, curr):
+            # We want to return False when prev is False and curr is True
             prev_bool, curr_bool = torch.eq(prev, 1.0), torch.eq(curr, 1.0)
             reset = torch.logical_and(torch.logical_not(prev_bool), curr_bool)
             return torch.logical_not(reset)
@@ -455,16 +472,7 @@ class NavGazeMixtureOfExpertsMaskSingle(NavGazeMixtureOfExpertsMask):
         return cls(
             observation_space=observation_space,
             action_space=actual_action_space,
-            nav_checkpoint_path=config.RL.POLICY.nav_checkpoint_path,
-            gaze_checkpoint_path=config.RL.POLICY.gaze_checkpoint_path,
-            goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0),
-            fuse_states=config.RL.POLICY.fuse_states,
-            num_environments=config.NUM_ENVIRONMENTS,
-            hidden_size=config.RL.PPO.hidden_size,
-            train_critic_only=config.RL.get("train_critic_only", False),
-            residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
-            use_residuals=config.RL.POLICY.use_residuals,
-            force_blind=config.RL.POLICY.force_blind,
+            config=config,
         )
 
     def get_action_masks(self, expert_masks):
@@ -496,49 +504,24 @@ class NavGazeMixtureOfExpertsMaskCombo(NavGazeMixtureOfExpertsMask):
     (0 - 4)
     """
 
-    def __init__(self, num_combos, freeze_residuals, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self, observation_space, action_space, config, *args, **kwargs
+    ):
+        num_combos = config.RL.POLICY.num_combos
+        num_actions = action_space.shape[0]
+        actual_action_space = Box(-1.0, 1.0, (num_actions + 1,))
+        super().__init__(
+            observation_space, actual_action_space, config, *args, **kwargs
+        )
+
         self.num_masks = 1
         self.num_combos = num_combos
-        self.freeze_residuals = freeze_residuals
-        if freeze_residuals:
-            for name, param in self.named_parameters():
-                if "gaussian_net" in name:
-                    param.requires_grad = False
 
         """Nav, Gaze, NavGaze | Place, NavPlace"""
         filter_valid_combos = lambda x: [i for i in x if i < num_combos]
         self.nav_combo_ids = filter_valid_combos([0, 2, 4])
         self.gaze_combo_ids = filter_valid_combos([1, 2])
         self.place_combo_ids = filter_valid_combos([3, 4])
-
-    @classmethod
-    def from_config(
-        cls, config: Config, observation_space: Dict, action_space
-    ):
-        num_actions = action_space.shape[0]
-        actual_action_space = Box(-1.0, 1.0, (num_actions + 1,))
-
-        num_combos = config.RL.POLICY.num_combos
-        return cls(
-            observation_space=observation_space,
-            action_space=actual_action_space,
-            nav_checkpoint_path=config.RL.POLICY.nav_checkpoint_path,
-            gaze_checkpoint_path=config.RL.POLICY.gaze_checkpoint_path,
-            goal_hidden_size=config.RL.PPO.get("goal_hidden_size", 0),
-            fuse_states=config.RL.POLICY.fuse_states,
-            num_environments=config.NUM_ENVIRONMENTS,
-            hidden_size=config.RL.PPO.hidden_size,
-            train_critic_only=config.RL.get("train_critic_only", False),
-            force_blind=config.RL.POLICY.force_blind,
-            residuals_on_inactive=config.RL.POLICY.residuals_on_inactive,
-            num_combos=num_combos,
-            freeze_residuals=config.RL.POLICY.freeze_residuals,
-            # For GaussianCategorical action distribution
-            gaussian_categorical=True,
-            num_outputs_gaussian=num_actions,
-            num_outputs_categorical=num_combos,
-        )
 
     def get_action_masks(self, expert_masks):
         cmbs = [self.nav_combo_ids, self.gaze_combo_ids, self.place_combo_ids]
