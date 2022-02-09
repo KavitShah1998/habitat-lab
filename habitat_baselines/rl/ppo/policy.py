@@ -296,8 +296,7 @@ class PointNavBaselineNet(Net):
 
         # Save visual features for use by other policies (mixer policy)
         self.pred_visual_features = torch.cat(x, dim=1) if x else None
-        # self.vis_feats_queued = True
-        self.vis_feats_queued = False
+        self.vis_feats_queued = True
         return self.pred_visual_features
 
     def forward(self, observations, rnn_hidden_states, prev_actions, masks):
