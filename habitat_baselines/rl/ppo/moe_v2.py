@@ -17,7 +17,9 @@ def construct_mlp_base(input_size, hidden_size, num_layers=3):
     prev_size = input_size
     for _ in range(num_layers):
         layers.append(
-            initialized_linear(prev_size, hidden_size, gain=np.sqrt(2))
+            initialized_linear(
+                int(prev_size), int(hidden_size), gain=np.sqrt(2)
+            )
         )
         layers.append(nn.ReLU())
         prev_size = hidden_size
@@ -38,9 +40,8 @@ class MoePolicy(Policy, nn.Module):
         self.num_gates = num_gates
         self.num_actions = num_actions
         self.fuse_states = fuse_states
-        input_size = sum(
-            [observation_space.spaces[n].shape[0] for n in self.fuse_states]
-        )
+        spaces = observation_space.spaces
+        input_size = sum([spaces[n].shape[0] for n in self.fuse_states])
 
         # Residual actor
         self.residual_actor = nn.Sequential(
@@ -60,12 +61,13 @@ class MoePolicy(Policy, nn.Module):
             initialized_linear(hidden_size, 1, gain=np.sqrt(2)),
         )
 
-    def obs_to_tensor(self, observations):
+    def obs_to_tensor(self, observations, exclude=()):
         # Convert double to float if found
         for k, v in observations.items():
             if v.dtype is torch.float64:
                 observations[k] = v.type(torch.float32)
-        return torch.cat([observations[k] for k in self.fuse_states], dim=1)
+        obs_keys = [k for k in self.fuse_states if k not in exclude]
+        return torch.cat([observations[k] for k in obs_keys], dim=1)
 
     def act(
         self,
@@ -110,8 +112,8 @@ class MoePolicy(Policy, nn.Module):
         )
 
         action_log_probs = gating_distribution.log_probs(
-            res_act
-        ) + residual_distribution.log_probs(gate_act)
+            gate_act
+        ) + residual_distribution.log_probs(res_act)
         distribution_entropy = (
             residual_distribution.entropy() + gating_distribution.entropy()
         )
