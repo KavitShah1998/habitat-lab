@@ -35,7 +35,7 @@ EXPERT_UUIDS = [
 class BehavioralCloningMoe(BaseRLTrainer):
     def __init__(self, config, *args, **kwargs):
         logger.add_filehandler(config.LOG_FILE)
-        logger.info(f"Full config:\n{config}")
+        # logger.info(f"Full config:\n{config}")
 
         self.config = config
         self.device = torch.device("cuda", 0)
@@ -62,8 +62,10 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.tb_dir = config.TENSORBOARD_DIR
         self.bc_loss_type = config.BC_LOSS_TYPE
         self.load_weights = config.RL.DDPPO.pretrained
+        self.teacher_forcing = config.TEACHER_FORCING
+        self.num_envs = config.NUM_PROCESSES
 
-    def setup_teacher_student(self):
+    def setup_teacher_student(self, del_envs=False):
         # Envs MUST be instantiated first
         observation_space = self.envs.observation_spaces[0]
         obs_transforms = get_active_obs_transforms(self.config)
@@ -96,6 +98,9 @@ class BehavioralCloningMoe(BaseRLTrainer):
         elif hasattr(self.moe.net, "fuse_states"):
             fuse_states_list = "\n - ".join(self.moe.net.fuse_states)
             print("Fuse states:\n -", fuse_states_list)
+        if del_envs:
+            self.envs.close()
+            del self.envs
         self.moe.to(self.device)
 
         # Setup prev_actions, masks, and recurrent hidden states
@@ -104,7 +109,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
             self.masks,
             self.prev_actions,
         ) = get_blank_params(
-            self.config, self.moe, self.device, num_envs=self.envs.num_envs
+            self.config, self.moe, self.device, num_envs=self.num_envs
         )
         self.num_actions = self.prev_actions.shape[1]
 
@@ -176,6 +181,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 self.prev_actions,
                 self.masks,
                 deterministic=True,
+                update_masks=not self.teacher_forcing,
             )
         self.prev_actions.copy_(actions)
         if not no_grad:
@@ -233,7 +239,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
     def transform_observations(self, observations, masks):
         return self.moe.transform_obs(observations, masks)
 
-    def train(self):
+    def init_envs(self, config):
         # Andrew's code for VectorEnvs
         import sys
 
@@ -243,19 +249,30 @@ class BehavioralCloningMoe(BaseRLTrainer):
 
         policy = baseline_registry.get_policy(self.policy_name)
         if issubclass(policy, HabPolicy):
-            policy = policy(self.config)
+            policy = policy(config)
         else:
             policy = None
         self.envs, _ = get_hab_envs(
-            self.config,
+            config,
             "./config.yaml",
             False,  # is_eval
-            spec_gpu=self.config.TORCH_GPU_ID,
+            spec_gpu=config.TORCH_GPU_ID,
             setup_policy=policy,
         )
 
+    def train(self):
+        # HACK: Memory error when envs are loaded before policy
+        tmp_config = self.config.clone()
+        tmp_config.defrost()
+        tmp_config.NUM_ENVIRONMENTS = 1
+        tmp_config.NUM_PROCESSES = 1
+        tmp_config.freeze()
+        self.init_envs(tmp_config)
+
         # Set up policies
-        self.setup_teacher_student()
+        self.setup_teacher_student(del_envs=True)
+        # HACK: Memory error when envs are loaded before policy
+        self.init_envs(self.config)
 
         # Set up optimizer
         optimizer = optim.Adam(self.get_model_params(), lr=self.sl_lr)
@@ -380,8 +397,9 @@ class BehavioralCloningMoeMask(BehavioralCloningMoe):
         mask_actions = actions[:, -self.moe.num_masks :]
         action_loss = F.mse_loss(mask_actions, teacher_mask_labels)
 
-        # # Use teacher masks
-        # self.moe.get_action_masks(teacher_mask_labels)
+        if self.teacher_forcing:
+            # Use teacher masks
+            self.moe.get_action_masks(teacher_mask_labels)
 
         step_actions = self.stepify_actions(actions, use_residuals=False)
 
