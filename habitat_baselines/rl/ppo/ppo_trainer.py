@@ -127,7 +127,9 @@ class PPOTrainer(BaseRLTrainer):
 
         return t.to(device=orig_device)
 
-    def _setup_actor_critic_agent(self, ppo_cfg: Config) -> None:
+    def _setup_actor_critic_agent(
+        self, ppo_cfg: Config, del_envs=False
+    ) -> None:
         r"""Sets up actor critic and agent for PPO.
 
         Args:
@@ -169,6 +171,9 @@ class PPOTrainer(BaseRLTrainer):
         print("Observation space:")
         for k, v in observation_space.spaces.items():
             print(k, v.shape)
+        if del_envs:
+            self.envs.close()
+            del self.envs
         self.actor_critic.to(self.device)
 
         if (
@@ -178,7 +183,6 @@ class PPOTrainer(BaseRLTrainer):
             pretrained_state = torch.load(
                 self.config.RL.DDPPO.pretrained_weights, map_location="cpu"
             )
-
         if self.config.RL.DDPPO.pretrained:
             orig_state_dict = self.actor_critic.state_dict()
             try:
@@ -317,7 +321,12 @@ class PPOTrainer(BaseRLTrainer):
             num_steps_to_capture=self.config.PROFILING.NUM_STEPS_TO_CAPTURE,
         )
 
-        self._init_envs(False)
+        # HACK: Memory error when envs are loaded before policy
+        tmp_config = self.config.clone()
+        tmp_config.defrost()
+        tmp_config.NUM_PROCESSES = 1
+        tmp_config.freeze()
+        self._init_envs(is_eval=False, config=tmp_config)
 
         ppo_cfg = self.config.RL.PPO
         if torch.cuda.is_available():
@@ -329,7 +338,11 @@ class PPOTrainer(BaseRLTrainer):
         if rank0_only() and not os.path.isdir(self.config.CHECKPOINT_FOLDER):
             os.makedirs(self.config.CHECKPOINT_FOLDER)
 
-        self._setup_actor_critic_agent(ppo_cfg)
+        self._setup_actor_critic_agent(ppo_cfg, del_envs=True)
+
+        # HACK: Memory error when envs are loaded before policy
+        self._init_envs(is_eval=False)
+
         if self._is_distributed:
             self.agent.init_distributed(find_unused_params=True)
 
