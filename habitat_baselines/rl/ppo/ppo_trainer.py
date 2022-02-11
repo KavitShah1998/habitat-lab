@@ -1067,10 +1067,11 @@ class PPOTrainer(BaseRLTrainer):
         ppo_cfg = config.RL.PPO
 
         use_video_option = self.config.VIDEO_OPTION[:]
-        if (
-            False
-            and (checkpoint_index + 1) % config.CHECKPOINT_RENDER_INTERVAL != 0
-        ):
+        # if (
+        #     False
+        #     and (checkpoint_index + 1) % config.CHECKPOINT_RENDER_INTERVAL != 0
+        # ):
+        if len(use_video_option) == 0:
             use_video_option = []
             config.defrost()
             config.hab_high_render = False
