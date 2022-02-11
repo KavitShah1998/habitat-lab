@@ -346,7 +346,7 @@ def poll_checkpoint_folder(
     )
     print("\ncheckpoint_folder: ", checkpoint_folder, "\n")
     models_paths = list(
-        filter(os.path.isfile, glob.glob(checkpoint_folder + "/*"))
+        filter(os.path.isfile, glob.glob(checkpoint_folder + "/*pth"))
     )
     models_paths.sort(key=os.path.getmtime)
     ind = previous_ckpt_ind + 1
