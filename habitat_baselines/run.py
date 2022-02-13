@@ -103,7 +103,8 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         }
 
         for k, v in sub_paths.items():
-            opts.extend([k, osp.join(base_dir, v)])
+            if k not in opts:
+                opts.extend([k, osp.join(base_dir, v)])
 
     if "JUNK" in opts:
         junk_idx = opts.index("JUNK")
