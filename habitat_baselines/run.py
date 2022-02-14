@@ -65,10 +65,10 @@ def execute_exp(config: Config, run_type: str) -> None:
 
 
 PATHS_TO_JUNK = {
-    "LOG_FILE": "/nethome/nyokoyama3/junk/train.log",
-    "CHECKPOINT_FOLDER": "/nethome/nyokoyama3/junk/",
-    "TENSORBOARD_DIR": "/nethome/nyokoyama3/junk/",
-    "VIDEO_DIR": "/nethome/nyokoyama3/junk/",
+    "LOG_FILE": "junk/train.log",
+    "CHECKPOINT_FOLDER": "junk/",
+    "TENSORBOARD_DIR": "junk/",
+    "VIDEO_DIR": "junk/",
 }
 
 
