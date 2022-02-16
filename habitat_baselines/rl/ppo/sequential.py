@@ -41,8 +41,14 @@ NAV = "nav_v2"
 SKILL2VISUAL_BLACKLIST = {
     NAV: ["arm_depth", "arm_depth_bbox"],
     NAVPLACE: ["arm_depth", "arm_depth_bbox"],
-    PICK: ["depth"],
-    PLACE: ["depth", "arm_depth", "arm_depth_bbox"],
+    PICK: ["depth", "spot_left_depth", "spot_right_depth"],
+    PLACE: [
+        "depth",
+        "arm_depth",
+        "arm_depth_bbox",
+        "spot_left_depth",
+        "spot_right_depth",
+    ],
 }
 
 
