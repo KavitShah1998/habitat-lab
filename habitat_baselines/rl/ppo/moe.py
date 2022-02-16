@@ -309,6 +309,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         )
         self.residuals_on_inactive = config.RL.POLICY.residuals_on_inactive
         self.use_residuals = config.RL.POLICY.use_residuals
+        self.dont_digitize = config.RL.POLICY.dont_digitize
         self.nav_action_mask = None
         self.gaze_action_mask = None
         self.place_action_mask = None
@@ -370,15 +371,18 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         return value, action, action_log_probs, rnn_hidden_states
 
     def get_action_masks(self, expert_masks):
-        activation_mask = torch.where(expert_masks > 0, 1.0, 0.0)
+        if self.dont_digitize:
+            activation_mask = (torch.clip(expert_masks, -1, 1) + 1) / 2
+            activation_mask[activation_mask < 0.05] = 0.0
+        else:
+            activation_mask = torch.where(expert_masks > 0, 1.0, 0.0)
         activation_mask = torch.split(
             activation_mask, [1] * self.num_experts, dim=1
         )
 
         def reset_hx(prev, curr):
             # We want to return False when prev is False and curr is True
-            prev_bool, curr_bool = torch.eq(prev, 1.0), torch.eq(curr, 1.0)
-            reset = torch.logical_and(torch.logical_not(prev_bool), curr_bool)
+            reset = torch.logical_and(torch.eq(prev, 0), ~torch.eq(curr, 0))
             return torch.logical_not(reset)
 
         if self.num_experts == 2:
