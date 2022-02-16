@@ -199,7 +199,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             )
             self.get_expert_actions(batch, masks)
         elif VISUAL_FEATURES_UUID in self.fuse_states:
-            # We still need to use the experts for their visual encoders
+            # Even if we don't use the expert actions as observations, we still
+            # need to forward pass through them to get their visual features
             batch = batch_obs(
                 observations,
                 device=self.device,
