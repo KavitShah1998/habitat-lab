@@ -5,7 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import contextlib
+import json
 import os
+import os.path as osp
 import random
 import time
 from collections import defaultdict, deque
@@ -1105,13 +1107,12 @@ class PPOTrainer(BaseRLTrainer):
                 self.agent.actor_critic.load_state_dict(
                     ckpt_dict["state_dict"]
                 )
-            except Exception as e:
+            except Exception:
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                raise e
 
         self.actor_critic = self.agent.actor_critic
 
@@ -1438,6 +1439,15 @@ class PPOTrainer(BaseRLTrainer):
                             single_sim._sim.gfx_replay_manager.write_saved_keyframes_to_file(
                                 video_name + ".json"
                             )
+                    else:
+                        print(
+                            "ep_id:",
+                            current_episodes[i].episode_id,
+                            "success:",
+                            episode_stats["ep_success"],
+                            "num_steps:",
+                            episode_stats["num_steps"],
+                        )
 
             not_done_masks = not_done_masks.to(device=self.device)
             (
@@ -1504,3 +1514,15 @@ class PPOTrainer(BaseRLTrainer):
             sim = rutils.get_env_attr(self.envs.env.envs[0], "_sim")
             sim.close(destroy=True)
         del self.envs
+        stats_episodes_json = {}
+        for k, v in stats_episodes.items():
+            stats_episodes_json[k[1]] = v
+        ckpt_str = osp.basename(checkpoint_path)[:-4].replace(".", "_")
+        if "JSON_PATH" not in self.config:
+            stats_json_path = self.config.LOG_FILE[:-4] + f"_{ckpt_str}.json"
+        else:
+            stats_json_path = self.config.JSON_PATH
+
+        print("Saving json to:", stats_json_path)
+        with open(stats_json_path, "w") as f:
+            json.dump(stats_episodes_json, f, indent=4, sort_keys=True)
