@@ -1,5 +1,5 @@
 VERBOSE: False
-BASE_TASK_CONFIG_PATH: "/private/home/naokiyokoyama/spot_nav/habitat-lab/configs/tasks/pvp_spotnav_hm3d.yaml"
+BASE_TASK_CONFIG_PATH: "configs/tasks/pvp_spotnav_hm3d.yaml"
 TRAINER_NAME: "ddppo"
 ENV_NAME: "NavRLEnv"
 SIMULATOR_GPU_ID: 0

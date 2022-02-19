@@ -13,7 +13,7 @@ SIMULATOR:
     WIDTH: 120
     HEIGHT: 212
     HFOV: 58.286  # horizontal field of view in degrees
-    ORIENTATION: [-0.4415683, -0.57648225, -0.270526]  # Euler angles (pitch yaw roll)
+    ORIENTATION: [-0.4415683, -0.57648225, 0.270526]  # Euler angles (pitch yaw roll)
     POSITION: [-0.03740343144695029, 0.5, -0.4164822634134684]
   SPOT_RIGHT_RGB_SENSOR:
     TYPE: "SpotRightRgbSensor"
@@ -27,7 +27,7 @@ SIMULATOR:
     WIDTH: 120
     HEIGHT: 212
     HFOV: 58.286  # horizontal field of view in degrees
-    ORIENTATION: [-0.4415683, -0.57648225, -0.270526]  # Euler angles (pitch yaw roll)
+    ORIENTATION: [-0.4415683, -0.57648225, 0.270526]  # Euler angles (pitch yaw roll)
     POSITION: [-0.03740343144695029, 0.5, -0.4164822634134684]
     MAX_DEPTH: 3.5
     MIN_DEPTH: 0.0
