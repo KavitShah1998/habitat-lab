@@ -144,6 +144,7 @@ class SequentialExperts(PointNavBaselinePolicy):
 
         # Maps expert type (name of env used to train) to policies
         self.expert_skills = OrderedDict()
+        experts = [i for i in experts if i != ""]
         for expert in experts:
             checkpoint = torch.load(expert, map_location="cpu")
             config = checkpoint["config"]
@@ -209,7 +210,11 @@ class SequentialExperts(PointNavBaselinePolicy):
         return cls(
             observation_space=observation_space,
             action_space=action_space,
-            experts=config.SEQUENTIAL_EXPERTS,
+            experts=[
+                config.RL.POLICY.nav_checkpoint_path,
+                config.RL.POLICY.gaze_checkpoint_path,
+                config.RL.POLICY.place_checkpoint_path,
+            ],
         )
 
     def update_current_policy(self, next_skill_type):
