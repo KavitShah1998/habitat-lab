@@ -390,16 +390,15 @@ class BehavioralCloningMoe(BaseRLTrainer):
 class BehavioralCloningMoeMask(BehavioralCloningMoe):
     def get_action_and_loss(self, batch):
         teacher_mask_labels = self.get_teacher_labels(batch)
+        if self.teacher_forcing:
+            # Use teacher masks
+            self.moe.get_action_masks(teacher_mask_labels)
         actions = self.get_student_actions(batch)
 
         # Calculate loss. We only care about the mask outputs for behavioral
         # cloning, not the residuals.
         mask_actions = actions[:, -self.moe.num_masks :]
         action_loss = F.mse_loss(mask_actions, teacher_mask_labels)
-
-        if self.teacher_forcing:
-            # Use teacher masks
-            self.moe.get_action_masks(teacher_mask_labels)
 
         step_actions = self.stepify_actions(actions, use_residuals=False)
 
