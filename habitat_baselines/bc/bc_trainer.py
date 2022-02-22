@@ -322,10 +322,10 @@ class BehavioralCloningMoe(BaseRLTrainer):
             # frame = self.envs.render(mode="rgb_array")[0]
             # self.frames.append(frame)
             #
-            # # Get episode stats
-            # for idx, done in enumerate(dones):
-            #     if done:
-            #         self.success_deq.append(infos[idx]["ep_success"])
+            # Get episode stats
+            for idx, done in enumerate(dones):
+                if done:
+                    self.success_deq.append(infos[idx]["ep_success"])
             #         if infos[idx]["ep_success"] < 1.0:
             #             ep_txts = sorted(
             #                 glob.glob("/nethome/nyokoyama3/delme/*txt"),
