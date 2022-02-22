@@ -16,8 +16,10 @@ ARM_ACTIONS = 4  # 4 controllable joints
 BASE_ACTIONS = 2  # linear and angular vel
 EXPERT_NAV_UUID = "expert_nav"
 EXPERT_GAZE_UUID = "expert_gaze"
+EXPERT_PLACE_UUID = "expert_place"
 EXPERT_MASKS_UUID = "expert_masks"
 VISUAL_FEATURES_UUID = "visual_features"
+EXPERT_ACTIONS_UUID = "expert_actions"
 
 
 @baseline_registry.register_policy
@@ -26,11 +28,13 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self, observation_space: Dict, action_space, config, *args, **kwargs
     ):
         # First, immediately extract values from config for clarity
-        num_environments = config.NUM_ENVIRONMENTS
+        num_envs = config.NUM_ENVIRONMENTS
         hidden_size = config.RL.PPO.hidden_size
-        nav_checkpoint_path = config.RL.POLICY.nav_checkpoint_path
-        gaze_checkpoint_path = config.RL.POLICY.gaze_checkpoint_path
+        nav_ckpt_path = config.RL.POLICY.nav_checkpoint_path
+        gaze_ckpt_path = config.RL.POLICY.gaze_checkpoint_path
+        place_ckpt_path = config.RL.POLICY.place_checkpoint_path
         freeze_keys = config.RL.POLICY.freeze_keys
+        self.num_experts = 2 if place_ckpt_path == "" else 3
         self.fuse_states = config.RL.POLICY.fuse_states
         self.blind = config.RL.POLICY.force_blind
         self.obs_expert_actions = config.RL.POLICY.get(
@@ -62,11 +66,10 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             self.fuse_states.extend([EXPERT_NAV_UUID, EXPERT_GAZE_UUID])
 
         # Instantiate MoE's own policy
-        # TODO: don't hardcode gate amount
         super().__init__(
             observation_space,
             fuse_states=self.fuse_states,
-            num_gates=2,
+            num_gates=self.num_experts,
             num_actions=BASE_ACTIONS + ARM_ACTIONS,
         )
 
@@ -89,44 +92,55 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.device = torch.device("cpu")
 
         # Load pre-trained experts
-        nav_ckpt = torch.load(nav_checkpoint_path, map_location=self.device)
-        gaze_ckpt = torch.load(gaze_checkpoint_path, map_location=self.device)
-        self.expert_nav_policy = ckpt_to_policy(
-            nav_ckpt, observation_space_copy
-        )
-        self.expert_gaze_policy = ckpt_to_policy(
-            gaze_ckpt, observation_space_copy
-        )
+        def get_ckpt_policy(ckpt_path):
+            if ckpt_path == "":
+                return None, None
+            ckpt = torch.load(ckpt_path, map_location=self.device)
+            policy = ckpt_to_policy(ckpt, observation_space_copy)
+            policy.eval()
+            return ckpt, policy
+
+        nav_ckpt, self.expert_nav_policy = get_ckpt_policy(nav_ckpt_path)
+        gaze_ckpt, self.expert_gaze_policy = get_ckpt_policy(gaze_ckpt_path)
+        place_ckpt, self.expert_place_policy = get_ckpt_policy(place_ckpt_path)
 
         # Freeze expert weights
         for name, param in self.named_parameters():
             if "expert" in name:
                 param.requires_grad = False
 
-        self.nav_rnn_hx, _, self.nav_prev_actions = get_blank_params(
-            nav_ckpt["config"],
-            self.expert_nav_policy,
-            self.device,
-            num_envs=num_environments,
+        def get_hx_prev_actions(ckpt, policy):
+            if ckpt is None:
+                return None, None
+            hx, _, prev_actions = get_blank_params(
+                ckpt["config"], policy, torch.device("cpu"), num_envs=num_envs
+            )
+            return hx, prev_actions
+
+        self.nav_rnn_hx, self.nav_prev_actions = get_hx_prev_actions(
+            nav_ckpt, self.expert_nav_policy
         )
-        self.gaze_rnn_hx, _, self.gaze_prev_actions = get_blank_params(
-            gaze_ckpt["config"],
-            self.expert_gaze_policy,
-            self.device,
-            num_envs=num_environments,
+        self.gaze_rnn_hx, self.gaze_prev_actions = get_hx_prev_actions(
+            gaze_ckpt, self.expert_gaze_policy
         )
-        self.nav_masks = torch.ones(num_environments, 1, dtype=torch.bool)
-        self.gaze_masks = torch.ones(num_environments, 1, dtype=torch.bool)
-        self.prev_nav_masks = torch.zeros(
-            num_environments, 1, dtype=torch.bool
+        self.place_rnn_hx, self.place_prev_actions = get_hx_prev_actions(
+            place_ckpt, self.expert_place_policy
         )
-        self.prev_gaze_masks = torch.zeros(
-            num_environments, 1, dtype=torch.bool
-        )
+
+        (
+            self.nav_masks,
+            self.gaze_masks,
+            self.place_masks,
+            self.prev_nav_masks,
+            self.prev_gaze_masks,
+            self.prev_place_masks,
+        ) = [torch.ones(num_envs, 1, dtype=torch.bool) for _ in range(6)]
+
         self.nav_action = None
         self.gaze_action = None
-        self.num_experts = 2  # TODO
+        self.place_action = None
         self._obs_batching_cache = ObservationBatchingCache()
+        self.active_envs = list(range(num_envs))
 
     @classmethod
     def from_config(
@@ -140,6 +154,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
 
     def to(self, device, *args):
         super().to(device, *args)
+        self.device = device
         self.nav_rnn_hx = self.nav_rnn_hx.to(device)
         self.gaze_rnn_hx = self.gaze_rnn_hx.to(device)
         self.nav_prev_actions = self.nav_prev_actions.to(device)
@@ -150,14 +165,31 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.gaze_masks = self.gaze_masks.to(device)
         self.prev_nav_masks = self.prev_nav_masks.to(device)
         self.prev_gaze_masks = self.prev_gaze_masks.to(device)
-        self.device = device
+
+        if self.expert_place_policy is not None:
+            self.place_rnn_hx = self.place_rnn_hx.to(device)
+            self.place_prev_actions = self.place_prev_actions.to(device)
+            self.expert_place_policy = self.expert_place_policy.to(device)
+            self.place_masks = self.place_masks.to(device)
+            self.prev_place_masks = self.prev_place_masks.to(device)
 
     def get_expert_actions(self, batch, masks):
+        # Determine if one of the VectorEnvs were paused
+        key = list(batch.keys())[0]
+        if batch[key].shape[0] < len(self.active_envs):
+            # Determine which environment ID was removed
+            # TODO: Finish implementing this
+            raise RuntimeError("Number of Vector Envs decreased!")
+        elif batch[key].shape[0] > len(self.active_envs):
+            raise RuntimeError("Number of Vector Envs increased!")
+
         masks_device = (
             masks.to(self.device) if masks.device != self.device else masks
         )
         nav_masks = torch.logical_and(masks_device, self.nav_masks)
         gaze_masks = torch.logical_and(masks_device, self.gaze_masks)
+        if self.expert_place_policy is not None:
+            place_masks = torch.logical_and(masks_device, self.place_masks)
         with torch.no_grad():
             (
                 _,
@@ -175,12 +207,31 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             ) = self.expert_gaze_policy.act(
                 batch, self.gaze_rnn_hx, self.gaze_prev_actions, gaze_masks
             )
+            if self.expert_place_policy is not None:
+                self.expert_place_policy.net.speak = True
+                (
+                    _,
+                    self.place_action,
+                    _,
+                    self.place_rnn_hx,
+                ) = self.expert_place_policy.act(
+                    batch,
+                    self.place_rnn_hx,
+                    self.place_prev_actions,
+                    place_masks,
+                    deterministic=True,
+                )
+
         self.nav_prev_actions.copy_(self.nav_action)
         self.gaze_prev_actions.copy_(self.gaze_action)
+        if self.expert_place_policy is not None:
+            self.place_prev_actions.copy_(self.place_action)
 
         # Move expert actions to CPU (for observation/action_arg insertion)
         self.nav_action = self.nav_action.detach().cpu()
         self.gaze_action = self.gaze_action.detach().cpu()
+        if self.expert_place_policy is not None:
+            self.place_action = self.place_action.detach().cpu()
 
     def transform_obs(self, observations, masks):
         """
@@ -206,6 +257,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 device=self.device,
                 cache=self._obs_batching_cache,
             )
+            # Place expert does not have a visual encoder
             self.expert_nav_policy.net.get_vis_feats(batch)
             self.expert_gaze_policy.net.get_vis_feats(batch)
 
@@ -219,6 +271,10 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 observations[index_env][EXPERT_GAZE_UUID] = self.gaze_action[
                     index_env
                 ].numpy()
+                if self.expert_place_policy is not None:
+                    observations[index_env][
+                        EXPERT_PLACE_UUID
+                    ] = self.place_action[index_env].numpy()
 
             if self.blind:
                 # Remove visual observations
@@ -243,6 +299,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         # Merge mixer's actions with experts'
         gaze_action = self.gaze_action[index_env]
         nav_action = self.nav_action[index_env]
+        if self.expert_place_policy is not None:
+            place_action = self.place_action[index_env]
         step_action = action.to(torch.device("cpu"))
 
         # Add expert actions as action_args for reward calculation in RLEnv
@@ -250,6 +308,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             EXPERT_GAZE_UUID: gaze_action,
             EXPERT_NAV_UUID: nav_action,
         }
+        if self.expert_place_policy is not None:
+            expert_args[EXPERT_PLACE_UUID] = place_action
         step_data = {
             "action": {"action": step_action, **expert_args, **kwargs}
         }
@@ -297,10 +357,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         self, observation_space, action_space, config, *args, **kwargs
     ):
         """Add actions for masking experts"""
-        if config.RL.POLICY.get("place_checkpoint_path", "") == "":
-            num_experts = 2
-        else:
-            num_experts = 3
+        num_experts = 2 if config.RL.POLICY.place_checkpoint_path == "" else 3
         actual_action_space = Box(
             -1.0, 1.0, (action_space.shape[0] + num_experts,)
         )
@@ -375,7 +432,17 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             activation_mask = (torch.clip(expert_masks, -1, 1) + 1) / 2
             activation_mask[activation_mask < 0.05] = 0.0
         else:
-            activation_mask = torch.where(expert_masks > 0, 1.0, 0.0)
+            activation_mask = expert_masks.detach().clone()
+            if self.num_experts == 3:
+                # We need to deactivate gaze or place in indices at which the
+                # other arm expert has a higher value
+                activation_mask[:, 1][
+                    activation_mask[:, 1] < activation_mask[:, 2]
+                ] = -1
+                activation_mask[:, 2][
+                    activation_mask[:, 2] <= activation_mask[:, 1]
+                ] = -1
+            activation_mask = torch.where(activation_mask > 0, 1.0, 0.0)
         activation_mask = torch.split(
             activation_mask, [1] * self.num_experts, dim=1
         )
@@ -415,11 +482,12 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
 
         # Zero out mask values indicating reselection of an expert
         self.nav_masks = reset_hx(self.prev_nav_masks, nav_masks)
-        self.gaze_masks = reset_hx(self.prev_gaze_masks, gaze_masks)
-        if self.num_experts == 3:
-            raise NotImplementedError  # TODO
         self.prev_nav_masks = nav_masks
+        self.gaze_masks = reset_hx(self.prev_gaze_masks, gaze_masks)
         self.prev_gaze_masks = gaze_masks
+        if self.expert_place_policy is not None:
+            self.place_masks = reset_hx(self.prev_place_masks, place_masks)
+            self.prev_place_masks = place_masks
 
     def action_to_dict(self, action, index_env, use_residuals=True, **kwargs):
         if self.use_residuals is not None:
@@ -427,19 +495,27 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
 
         # Merge mixer's actions with experts'
         gaze_action = self.gaze_action[index_env]
+        gaze_action_mask = self.gaze_action_mask[index_env].detach().cpu()
         nav_action = self.nav_action[index_env]
         nav_action_mask = self.nav_action_mask[index_env].detach().cpu()
-        gaze_action_mask = self.gaze_action_mask[index_env].detach().cpu()
+        if self.num_experts == 3:
+            place_action = self.place_action[index_env]
+            place_action_mask = (
+                self.place_action_mask[index_env].detach().cpu()
+            )
+
+        experts_action_arg = torch.cat([gaze_action, nav_action])
 
         # Compile an action based on the actions of the selected experts
         base_action = nav_action * nav_action_mask
-        if self.num_experts == 2:
+        if self.expert_place_policy is None:
             arm_action = gaze_action * gaze_action_mask
-        elif self.num_experts == 3:
-            # TODO: both place and pick cannot be used at the same time...
-            raise NotImplementedError
         else:
-            raise NotImplementedError
+            assert max(gaze_action_mask + place_action_mask) <= 1
+            arm_action = (
+                gaze_action * gaze_action_mask
+                + place_action * place_action_mask
+            )
         experts_action = torch.cat([arm_action, base_action])
 
         if use_residuals:
@@ -449,11 +525,16 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             step_action = experts_action
 
         # Add expert actions as action_args for reward calculation in RLEnv
-        masks_arg = action[ARM_ACTIONS + BASE_ACTIONS :].detach().cpu().numpy()
+        masks_arg = [
+            float(nav_action_mask[0]),
+            float(gaze_action_mask[0]),
+            float(place_action_mask[0]),
+        ]
         expert_args = {
             EXPERT_GAZE_UUID: gaze_action,
             EXPERT_NAV_UUID: nav_action,
             EXPERT_MASKS_UUID: masks_arg,
+            EXPERT_ACTIONS_UUID: experts_action_arg,
         }
         step_data = {
             "action": {"action": step_action, **expert_args, **kwargs}
