@@ -1,8 +1,10 @@
+import glob
 import os
 import os.path as osp
 from collections import deque
 from contextlib import ExitStack
 
+import imageio
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -315,30 +317,30 @@ class BehavioralCloningMoe(BaseRLTrainer):
             # Accumulate loss across batch
             action_loss += loss
 
-            # import glob
-            #
-            # import imageio
-            #
-            # frame = self.envs.render(mode="rgb_array")[0]
-            # self.frames.append(frame)
-            #
+            if self.config.DEBUG_BAD_EPS:
+                frame = self.envs.render(mode="rgb_array")[0]
+                self.frames.append(frame)
+
             # Get episode stats
             for idx, done in enumerate(dones):
                 if done:
                     self.success_deq.append(infos[idx]["ep_success"])
-            #         if infos[idx]["ep_success"] < 1.0:
-            #             ep_txts = sorted(
-            #                 glob.glob("/nethome/nyokoyama3/delme/*txt"),
-            #                 key=osp.getmtime,
-            #             )
-            #             ep_id = int(osp.basename(ep_txts[-2]).split(".")[0])
-            #             vid_name = f"/nethome/nyokoyama3/delme/{ep_id}.mp4"
-            #             vid = imageio.get_writer(vid_name, fps=30)
-            #             for im in self.frames:
-            #                 vid.append_data(im)
-            #             vid.close()
-            #             logger.info(f"Video created: {vid_name}")
-            #         self.frames = []
+                    if self.config.DEBUG_BAD_EPS:
+                        if infos[idx]["ep_success"] < 1.0:
+                            ep_txts = sorted(
+                                glob.glob("/nethome/nyokoyama3/delme/*txt"),
+                                key=osp.getmtime,
+                            )
+                            ep_id = int(
+                                osp.basename(ep_txts[-2]).split(".")[0]
+                            )
+                            vid_name = f"/nethome/nyokoyama3/delme/{ep_id}.mp4"
+                            vid = imageio.get_writer(vid_name, fps=30)
+                            for im in self.frames:
+                                vid.append_data(im)
+                            vid.close()
+                            logger.info(f"Video created: {vid_name}")
+                        self.frames = []
 
             if iteration % self._batch_length == 0:
                 # Run backpropagation using accumulated loss across batch
