@@ -1111,6 +1111,7 @@ class PPOTrainer(BaseRLTrainer):
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("WARNING: WEIGHTS WERE NOT PROPERLY LOADED!!")
+                print("(this is usually OK for Sequential Experts)")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
@@ -1249,6 +1250,8 @@ class PPOTrainer(BaseRLTrainer):
             )
 
         cur_render = 0
+        num_ended = 0
+        num_successful = 0
         while (
             len(stats_episodes) < number_of_eval_episodes
             and self.envs.num_envs > 0
@@ -1386,6 +1389,9 @@ class PPOTrainer(BaseRLTrainer):
                             current_episodes[i].episode_id,
                         )
                     ] = episode_stats
+                    num_ended += 1
+                    if episode_stats["ep_success"] == 1:
+                        num_successful += 1
                     if len(use_video_option) > 0:
                         name_conversion = {
                             "ep_success": "succ",
@@ -1441,13 +1447,17 @@ class PPOTrainer(BaseRLTrainer):
                             )
                     else:
                         print(
-                            "ep_id:",
+                            "Stats:\tep_id:",
                             current_episodes[i].episode_id,
                             "success:",
                             episode_stats["ep_success"],
                             "num_steps:",
                             episode_stats["num_steps"],
                         )
+                    print(
+                        f"Success rate: {num_successful/num_ended*100:.2f}% "
+                        f"({num_successful} out of {num_ended})"
+                    )
 
             not_done_masks = not_done_masks.to(device=self.device)
             (
