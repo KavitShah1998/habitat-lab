@@ -219,7 +219,6 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.place_rnn_hx,
                     self.place_prev_actions,
                     place_masks,
-                    deterministic=True,
                 )
 
         self.nav_prev_actions.copy_(self.nav_action)
