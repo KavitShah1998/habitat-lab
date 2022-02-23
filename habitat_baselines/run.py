@@ -7,6 +7,7 @@
 import argparse
 import os.path as osp
 import random
+import time
 
 import numpy as np
 import torch
@@ -90,6 +91,7 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
             opts.pop(base_dir_idx)
 
         assert "PREFIX" in opts
+        opts[opts.index("PREFIX") + 1] += f"_{int(time.time())}"
         prefix = opts[opts.index("PREFIX") + 1]
         slurm_dir = osp.join(base_dir, "slurm_files")
         if osp.isdir(slurm_dir):
