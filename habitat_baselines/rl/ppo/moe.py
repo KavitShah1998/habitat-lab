@@ -20,6 +20,7 @@ EXPERT_PLACE_UUID = "expert_place"
 EXPERT_MASKS_UUID = "expert_masks"
 VISUAL_FEATURES_UUID = "visual_features"
 EXPERT_ACTIONS_UUID = "expert_actions"
+CORRECTIONS_UUID = "corrections"
 
 
 @baseline_registry.register_policy
@@ -534,6 +535,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             EXPERT_NAV_UUID: nav_action,
             EXPERT_MASKS_UUID: masks_arg,
             EXPERT_ACTIONS_UUID: experts_action_arg,
+            CORRECTIONS_UUID: residual_action if use_residuals else 0,
         }
         step_data = {
             "action": {"action": step_action, **expert_args, **kwargs}
