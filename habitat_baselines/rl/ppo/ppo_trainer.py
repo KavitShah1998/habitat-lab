@@ -242,6 +242,9 @@ class PPOTrainer(BaseRLTrainer):
             eps=ppo_cfg.eps,
             max_grad_norm=ppo_cfg.max_grad_norm,
             use_normalized_advantage=ppo_cfg.use_normalized_advantage,
+            use_second_optimizer=ppo_cfg.use_second_optimizer,
+            second_optimizer_key=ppo_cfg.second_optimizer_key,
+            lr_2=ppo_cfg.lr_2,
         )
 
     def _init_envs(self, is_eval, config=None):

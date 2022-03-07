@@ -32,6 +32,9 @@ class PPO(nn.Module):
         max_grad_norm: Optional[float] = None,
         use_clipped_value_loss: bool = True,
         use_normalized_advantage: bool = True,
+        use_second_optimizer: bool = False,
+        second_optimizer_key=None,
+        lr_2=None,
     ) -> None:
 
         super().__init__()
@@ -48,14 +51,20 @@ class PPO(nn.Module):
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
 
-        try:
-            self.optimizer = optim.Adam(
-                [p for p in actor_critic.parameters() if p.requires_grad],
-                lr=lr,
-                eps=eps,
-            )
-        except ValueError:
-            print("PPO optimizer setup failed. Training won't work.")
+        params_1, params_2 = [], []
+        for name, p in actor_critic.named_parameters():
+            if not p.requires_grad:
+                continue
+            if use_second_optimizer and second_optimizer_key in name:
+                params_2.append(p)
+            else:
+                params_1.append(p)
+
+        self.optimizer = optim.Adam(params_1, lr=lr, eps=eps)
+        if use_second_optimizer:
+            self.optimizer2 = optim.Adam(params_2, lr=lr_2, eps=eps)
+        else:
+            self.optimizer2 = None
 
         try:
             self.device = next(actor_critic.parameters()).device
@@ -133,6 +142,8 @@ class PPO(nn.Module):
                 dist_entropy = dist_entropy.mean()
 
                 self.optimizer.zero_grad()
+                if self.optimizer2 is not None:
+                    self.optimizer2.zero_grad()
                 total_loss = (
                     value_loss * self.value_loss_coef
                     + action_loss
@@ -148,6 +159,8 @@ class PPO(nn.Module):
 
                 self.before_step()
                 self.optimizer.step()
+                if self.optimizer2 is not None:
+                    self.optimizer2.step()
                 self.after_step()
 
                 value_loss_epoch += value_loss.item()
