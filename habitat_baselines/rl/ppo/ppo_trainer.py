@@ -162,6 +162,8 @@ class PPOTrainer(BaseRLTrainer):
         )
         print("Actor-critic architecture:", self.actor_critic)
         self.obs_space = observation_space
+        self.envs.close()
+        del self.envs
         self.actor_critic.to(self.device)
 
         if (
@@ -264,7 +266,12 @@ class PPOTrainer(BaseRLTrainer):
             num_steps_to_capture=self.config.PROFILING.NUM_STEPS_TO_CAPTURE,
         )
 
-        self._init_envs()
+        # HACK: Memory error when envs are loaded before policy
+        tmp_config = self.config.clone()
+        tmp_config.defrost()
+        tmp_config.NUM_ENVIRONMENTS = 1
+        tmp_config.freeze()
+        self._init_envs(tmp_config)
 
         if self.config.RL.POLICY.action_distribution_type == "gaussian":
             self.policy_action_space = self.envs.action_spaces[0][
@@ -296,6 +303,10 @@ class PPOTrainer(BaseRLTrainer):
             os.makedirs(self.config.CHECKPOINT_FOLDER)
 
         self._setup_actor_critic_agent(ppo_cfg)
+
+        # HACK: Memory error when envs are loaded before policy
+        self._init_envs()
+
         if self._is_distributed:
             self.agent.init_distributed(find_unused_params=True)
 
@@ -944,6 +955,12 @@ class PPOTrainer(BaseRLTrainer):
         if config.VERBOSE:
             logger.info(f"env config: {config}")
 
+        # HACK: Memory error when envs are loaded before policy
+        # tmp_config = self.config.clone()
+        # tmp_config.defrost()
+        # tmp_config.NUM_ENVIRONMENTS = 1
+        # tmp_config.freeze()
+        # self._init_envs(tmp_config)
         self._init_envs(config)
 
         if self.config.RL.POLICY.action_distribution_type == "gaussian":
@@ -966,6 +983,7 @@ class PPOTrainer(BaseRLTrainer):
             action_type = torch.long
 
         self._setup_actor_critic_agent(ppo_cfg)
+        self._init_envs(config)
 
         try:
             self.agent.load_state_dict(ckpt_dict["state_dict"])
