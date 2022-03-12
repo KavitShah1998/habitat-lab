@@ -130,7 +130,7 @@ class PPO(nn.Module):
                     - dist_entropy * self.entropy_coef
                 )
 
-                if torch.isnan(total_loss):
+                if torch.isnan(total_loss).any():
                     print("TOTAL LOSS WAS NaN!! SKIPPING BACKPROP")
                     print("values\n", values)
                     print("action_log_probs\n", action_log_probs)
