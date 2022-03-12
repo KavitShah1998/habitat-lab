@@ -503,6 +503,8 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             place_action_mask = (
                 self.place_action_mask[index_env].detach().cpu()
             )
+        else:
+            place_action_mask = None
 
         experts_action_arg = torch.cat([gaze_action, nav_action])
 
@@ -528,14 +530,16 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         masks_arg = [
             float(nav_action_mask[0]),
             float(gaze_action_mask[0]),
-            float(place_action_mask[0]),
+            0.0 if place_action_mask is None else float(place_action_mask[0]),
         ]
         expert_args = {
             EXPERT_GAZE_UUID: gaze_action,
             EXPERT_NAV_UUID: nav_action,
             EXPERT_MASKS_UUID: masks_arg,
             EXPERT_ACTIONS_UUID: experts_action_arg,
-            CORRECTIONS_UUID: residual_action if use_residuals else 0,
+            CORRECTIONS_UUID: residual_action
+            if use_residuals
+            else torch.zeros(1),
         }
         step_data = {
             "action": {"action": step_action, **expert_args, **kwargs}
