@@ -32,6 +32,7 @@ SIMULATOR:
     MAX_DEPTH: 3.5
     MIN_DEPTH: 0.0
     NORMALIZE_DEPTH: True
+    MAX_ZERO: False
   SPOT_RIGHT_DEPTH_SENSOR:
     TYPE: "SpotRightDepthSensor"
     WIDTH: 120
@@ -42,6 +43,7 @@ SIMULATOR:
     MAX_DEPTH: 3.5
     MIN_DEPTH: 0.0
     NORMALIZE_DEPTH: True
+    MAX_ZERO: False
   RGB_SENSOR:
     WIDTH: 240
     HEIGHT: 212

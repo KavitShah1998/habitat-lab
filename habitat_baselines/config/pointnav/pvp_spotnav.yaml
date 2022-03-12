@@ -32,9 +32,12 @@ RL:
     name: "PointNavBaselinePolicy"
     action_distribution_type: "gaussian"
     OBS_TRANSFORMS:
-      ENABLED_TRANSFORMS: ['PEPPER_NOISE']
+      ENABLED_TRANSFORMS: []
       PEPPER_NOISE:
-        NOISE_PERCENT: 0.4
+        NOISE_PERCENT: 0.1
+        WHITE: False
+      CUTOUT:
+        WHITE: False
 
   PPO:
     # ppo params
