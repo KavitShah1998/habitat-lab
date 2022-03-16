@@ -150,7 +150,7 @@ class PPO(nn.Module):
                     - dist_entropy * self.entropy_coef
                 )
 
-                if not torch.isnan(total_loss):
+                if not torch.isnan(total_loss).any():
                     self.before_backward(total_loss)
                     total_loss.backward()
                     self.after_backward(total_loss)
