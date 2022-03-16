@@ -1524,6 +1524,8 @@ def get_active_obs_transforms(config: Config) -> List[ObservationTransformer]:
             config.RL.POLICY.OBS_TRANSFORMS.ENABLED_TRANSFORMS
         )
         for obs_transform_name in obs_transform_names:
+            if obs_transform_name == "":
+                continue
             obs_trans_cls = baseline_registry.get_obs_transformer(
                 obs_transform_name
             )
