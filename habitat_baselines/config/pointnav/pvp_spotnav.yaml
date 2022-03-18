@@ -34,7 +34,7 @@ RL:
     OBS_TRANSFORMS:
       ENABLED_TRANSFORMS: []
       PEPPER_NOISE:
-        NOISE_PERCENT: 0.1
+        NOISE_PERCENT: 0.3
         WHITE: False
       CUTOUT:
         WHITE: False
