@@ -306,7 +306,7 @@ class HabitatSim(habitat_sim.Simulator, Simulator):
                 # or translated into the sensor config manually
                 ignore_keys={
                     "height",
-                    "hfov",
+                    # "hfov",
                     "max_depth",
                     "min_depth",
                     "normalize_depth",
