@@ -124,18 +124,14 @@ class PPO(nn.Module):
                 dist_entropy = dist_entropy.mean()
 
                 self.optimizer.zero_grad()
-                total_loss = (
-                    value_loss * self.value_loss_coef
-                    + action_loss
-                    - dist_entropy * self.entropy_coef
-                )
 
-                if torch.isnan(total_loss).any():
-                    print("TOTAL LOSS WAS NaN!! SKIPPING BACKPROP")
-                    print("values\n", values)
-                    print("action_log_probs\n", action_log_probs)
-                    print("dist_entropy\n", dist_entropy)
-                    continue
+                total_loss = torch.zeros_like(action_loss)
+                if not torch.isnan(action_loss).any():
+                    total_loss += action_loss
+                if not torch.isnan(value_loss).any():
+                    total_loss += value_loss * self.value_loss_coef
+                if not torch.isnan(dist_entropy).any():
+                    total_loss -= dist_entropy * self.entropy_coef
 
                 self.before_backward(total_loss)
                 total_loss.backward()
