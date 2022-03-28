@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import contextlib
+import json
 import os
 import random
 import time
@@ -12,7 +13,6 @@ from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-import json
 import torch
 import tqdm
 from gym import spaces
@@ -74,14 +74,18 @@ class PPOTrainer(BaseRLTrainer):
     agent: PPO
     actor_critic: Policy
 
-    def __init__(self, config=None, runtype='train'):
-        if runtype == 'train':
+    def __init__(self, config=None, runtype="train"):
+        if runtype == "train":
             resume_state = load_resume_state(config)
             self.OVERRIDE_TOTAL_NUM_STEPS = None
             if resume_state is not None:
-                if 'OVERRIDE' in config:
-                    self.OVERRIDE_NUM_CHECKPOINTS = config.OVERRIDE.NUM_CHECKPOINTS
-                    self.OVERRIDE_TOTAL_NUM_STEPS = config.OVERRIDE.TOTAL_NUM_STEPS
+                if "OVERRIDE" in config:
+                    self.OVERRIDE_NUM_CHECKPOINTS = (
+                        config.OVERRIDE.NUM_CHECKPOINTS
+                    )
+                    self.OVERRIDE_TOTAL_NUM_STEPS = (
+                        config.OVERRIDE.TOTAL_NUM_STEPS
+                    )
                     config = resume_state["config"]
                     config.defrost()
                     config.NUM_CHECKPOINTS = self.OVERRIDE_NUM_CHECKPOINTS
@@ -499,7 +503,7 @@ class PPOTrainer(BaseRLTrainer):
             elif len(self.discrete_actions) > 0:
                 act2 = torch.tensor(
                     self.discrete_actions[act.item()],
-                    device='cpu',
+                    device="cpu",
                 )
                 step_action = action_to_velocity_control(
                     act2, num_steps=self.num_steps_done
@@ -926,6 +930,11 @@ class PPOTrainer(BaseRLTrainer):
         Returns:
             None
         """
+        if self.config.EVAL.SKIP_CKPTS >= 0:
+            ckpt_index = int(checkpoint_path.split(".")[-2])
+            if ckpt_index < self.config.EVAL.SKIP_CKPTS:
+                print(f"SKIPPING {checkpoint_path}!!!!")
+                return
         if self._is_distributed:
             raise RuntimeError("Evaluation does not support distributed mode")
 
@@ -945,8 +954,10 @@ class PPOTrainer(BaseRLTrainer):
 
         if len(self.config.VIDEO_OPTION) > 0:
             config.defrost()
-            if config.TASK_CONFIG.TASK.TYPE == 'SocialNav-v0':
-                config.TASK_CONFIG.TASK.MEASUREMENTS.append("SOCIAL_TOP_DOWN_MAP")
+            if config.TASK_CONFIG.TASK.TYPE == "SocialNav-v0":
+                config.TASK_CONFIG.TASK.MEASUREMENTS.append(
+                    "SOCIAL_TOP_DOWN_MAP"
+                )
             else:
                 config.TASK_CONFIG.TASK.MEASUREMENTS.append("TOP_DOWN_MAP")
             config.TASK_CONFIG.TASK.MEASUREMENTS.append("COLLISIONS")
@@ -1085,7 +1096,7 @@ class PPOTrainer(BaseRLTrainer):
                     action_to_velocity_control(
                         torch.tensor(
                             self.discrete_actions[a.item()],
-                            device='cpu',
+                            device="cpu",
                         )
                     )
                     for a in actions.to(device="cpu")
@@ -1142,7 +1153,7 @@ class PPOTrainer(BaseRLTrainer):
                         )
                     ] = episode_stats
 
-                    episode_stats['num_steps'] = len(rgb_frames[i])
+                    episode_stats["num_steps"] = len(rgb_frames[i])
 
                     all_episode_stats[
                         current_episodes[i].episode_id
@@ -1208,18 +1219,18 @@ class PPOTrainer(BaseRLTrainer):
         #     f.write(f"{step_id}\n")
         for k, v in aggregated_stats.items():
             logger.info(f"Average episode {k}: {v:.4f}")
-                # f.write(f"Average episode {k}: {v:.4f}\n")
+            # f.write(f"Average episode {k}: {v:.4f}\n")
 
         # Save JSON file
-        all_episode_stats['agg_stats'] = aggregated_stats
+        all_episode_stats["agg_stats"] = aggregated_stats
         json_dir = self.config.JSON_DIR
-        if json_dir != '':
+        if json_dir != "":
             os.makedirs(json_dir, exist_ok=True)
             json_path = os.path.join(
                 json_dir,
                 f"{os.path.basename(checkpoint_path[:-4]).replace('.','_')}.json",
             )
-            with open(json_path, 'w') as f:
+            with open(json_path, "w") as f:
                 json.dump(all_episode_stats, f)
 
         writer.add_scalars(

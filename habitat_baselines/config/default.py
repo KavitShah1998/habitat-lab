@@ -61,7 +61,8 @@ _C.FORCE_TORCH_SINGLE_THREADED = False
 _C.EVAL = CN()
 # The split to evaluate on
 _C.EVAL.SPLIT = "val"
-_C.EVAL.USE_CKPT_CONFIG = True
+_C.EVAL.USE_CKPT_CONFIG = False
+_C.EVAL.SKIP_CKPTS = -1
 # -----------------------------------------------------------------------------
 # REINFORCEMENT LEARNING (RL) ENVIRONMENT CONFIG
 # -----------------------------------------------------------------------------
