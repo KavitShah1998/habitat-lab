@@ -1191,6 +1191,58 @@ class Equirect2CubeMap(ProjectionTransformer):
         )
 
 
+@baseline_registry.register_obs_transformer(name="CROP_SPOT_GRIPPER")
+class CropSpotGripper(ObservationTransformer):
+    def __init__(
+        self, trans_keys: Tuple[str] = ("arm_depth", "arm_depth_bbox")
+    ):
+        """Args:
+        noise_percent: what percent of randomly selected pixel turn black
+        trans_keys: list of keys it will try to transform from obs
+        """
+        super().__init__()
+        self.trans_keys = trans_keys
+
+    def _transform_obs(self, obs: torch.Tensor) -> torch.Tensor:
+        return obs[:, :, 62:-30, ...]
+
+    @classmethod
+    def from_config(cls, config: Config):
+        return cls()
+
+    def transform_observation_space(self, observation_space: spaces.Dict):
+        observation_space = copy.deepcopy(observation_space)
+        for key in observation_space.spaces:
+            if key in self.trans_keys:
+                # In the observation space dict, the channels are always last
+                h, w = get_image_height_width(
+                    observation_space.spaces[key], channels_last=True
+                )
+                new_w = w - (62 + 30)
+                new_size = (h, new_w)
+                logger.info(
+                    "Resizing observation of %s: from %s to %s"
+                    % (key, (h, w), new_size)
+                )
+                observation_space.spaces[key] = overwrite_gym_box_shape(
+                    observation_space.spaces[key], new_size
+                )
+        return observation_space
+
+    @torch.no_grad()
+    def forward(
+        self, observations: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        observations.update(
+            {
+                sensor: self._transform_obs(observations[sensor])
+                for sensor in self.trans_keys
+                if sensor in observations
+            }
+        )
+        return observations
+
+
 def get_active_obs_transforms(config: Config) -> List[ObservationTransformer]:
     active_obs_transforms = []
     if hasattr(config.RL.POLICY, "OBS_TRANSFORMS"):
