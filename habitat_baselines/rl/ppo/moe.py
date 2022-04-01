@@ -4,8 +4,10 @@ from gym.spaces import Box, Dict
 
 from habitat.config import Config
 from habitat_baselines.common.baseline_registry import baseline_registry
+from habitat_baselines.common.obs_transformers import (
+    apply_obs_transforms_batch,
+)
 from habitat_baselines.rl.ppo.moe_v2 import MoePolicy
-from habitat_baselines.rl.ppo.policy import PointNavBaselineNet, Policy
 from habitat_baselines.rl.ppo.sequential import (
     ckpt_to_policy,
     get_blank_params,
@@ -233,7 +235,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         if self.expert_place_policy is not None:
             self.place_action = self.place_action.detach().cpu()
 
-    def transform_obs(self, observations, masks):
+    def transform_obs(self, observations, masks, obs_transforms=None):
         """
         Inserts expert actions into the observations
 
@@ -248,6 +250,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 device=self.device,
                 cache=self._obs_batching_cache,
             )
+            if obs_transforms is not None:
+                batch = apply_obs_transforms_batch(batch, obs_transforms)
             self.get_expert_actions(batch, masks)
         elif VISUAL_FEATURES_UUID in self.fuse_states:
             # Even if we don't use the expert actions as observations, we still
@@ -257,6 +261,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 device=self.device,
                 cache=self._obs_batching_cache,
             )
+            if obs_transforms is not None:
+                batch = apply_obs_transforms_batch(batch, obs_transforms)
             # Place expert does not have a visual encoder
             self.expert_nav_policy.net.get_vis_feats(batch)
             self.expert_gaze_policy.net.get_vis_feats(batch)

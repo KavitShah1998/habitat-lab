@@ -15,6 +15,7 @@ from habitat import logger
 from habitat_baselines.common.base_trainer import BaseRLTrainer
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.common.obs_transformers import (
+    apply_obs_transforms_batch,
     apply_obs_transforms_obs_space,
     get_active_obs_transforms,
 )
@@ -70,9 +71,9 @@ class BehavioralCloningMoe(BaseRLTrainer):
     def setup_teacher_student(self, del_envs=False):
         # Envs MUST be instantiated first
         observation_space = self.envs.observation_spaces[0]
-        obs_transforms = get_active_obs_transforms(self.config)
+        self.obs_transforms = get_active_obs_transforms(self.config)
         observation_space = apply_obs_transforms_obs_space(
-            observation_space, obs_transforms
+            observation_space, self.obs_transforms
         )
 
         # MoE and its experts are loaded here
@@ -239,7 +240,9 @@ class BehavioralCloningMoe(BaseRLTrainer):
         return actions, action_loss
 
     def transform_observations(self, observations, masks):
-        return self.moe.transform_obs(observations, masks)
+        return self.moe.transform_obs(
+            observations, masks, obs_transforms=self.obs_transforms
+        )
 
     def init_envs(self, config):
         # Andrew's code for VectorEnvs
@@ -291,6 +294,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
         observations = self.envs.reset()
         observations = self.transform_observations(observations, self.masks)
         batch = batch_obs(observations, device=self.device)
+        batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
         batch_num = 0
         action_loss = 0
@@ -346,8 +350,9 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 # Run backpropagation using accumulated loss across batch
                 optimizer.zero_grad()
                 action_loss = action_loss.mean() / float(self._batch_length)
-                action_loss.backward()
-                optimizer.step()
+                if not torch.isnan(action_loss).any():
+                    action_loss.backward()
+                    optimizer.step()
 
                 # Print stats
                 batch_num += 1

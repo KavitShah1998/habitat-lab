@@ -400,6 +400,7 @@ class PPOTrainer(BaseRLTrainer):
                 masks=torch.zeros(
                     self.envs.num_envs, 1, dtype=torch.bool, device=self.device
                 ),
+                obs_transforms=self.obs_transforms,
             )
         batch = batch_obs(
             observations, device=self.device, cache=self._obs_batching_cache
@@ -599,7 +600,9 @@ class PPOTrainer(BaseRLTrainer):
         )
         if hasattr(self.actor_critic, "transform_obs"):
             observations = self.actor_critic.transform_obs(
-                observations, masks=not_done_masks
+                observations,
+                masks=not_done_masks,
+                obs_transforms=self.obs_transforms,
             )
 
         self.env_time += time.time() - t_step_env
@@ -1150,6 +1153,7 @@ class PPOTrainer(BaseRLTrainer):
                 masks=torch.zeros(
                     self.envs.num_envs, 1, dtype=torch.bool, device=self.device
                 ),
+                obs_transforms=self.obs_transforms,
             )
         batch = batch_obs(
             observations, device=self.device, cache=self._obs_batching_cache
@@ -1322,6 +1326,7 @@ class PPOTrainer(BaseRLTrainer):
                 observations = self.actor_critic.transform_obs(
                     observations,
                     masks=not_done_masks,
+                    obs_transforms=self.obs_transforms,
                 )
 
             if self.config.RL.POLICY.name == "SequentialExperts":

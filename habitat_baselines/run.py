@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import glob
 import os.path as osp
 import random
 import time
@@ -107,6 +108,26 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         for k, v in sub_paths.items():
             if k not in opts:
                 opts.extend([k, osp.join(base_dir, v)])
+
+    if "EVAL_CKPT_PATH_DIR" in opts:
+        eval_ckpt_idx = opts.index("EVAL_CKPT_PATH_DIR")
+        orig_eval_ckpt = opts[eval_ckpt_idx + 1]
+        is_file = orig_eval_ckpt.endswith(".pth")
+        if is_file:
+            ckpt_dir = osp.dirname(orig_eval_ckpt)
+            matches = glob.glob(ckpt_dir + "*")
+            assert len(matches) == 1
+            eval_ckpt = osp.join(matches[0], osp.basename(orig_eval_ckpt))
+            assert osp.isfile(eval_ckpt)
+        else:
+            while orig_eval_ckpt.endswith("/"):
+                orig_eval_ckpt = orig_eval_ckpt[:-1]
+            matches = glob.glob(orig_eval_ckpt + "*")
+            assert len(matches) == 1
+            eval_ckpt = matches[0]
+            assert osp.isdir(eval_ckpt)
+        opts[eval_ckpt_idx + 1] = eval_ckpt
+        print("EVAL_CKPT_PATH_DIR:", opts[eval_ckpt_idx + 1])
 
     if "JUNK" in opts:
         junk_idx = opts.index("JUNK")
