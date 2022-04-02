@@ -1412,6 +1412,9 @@ class PPOTrainer(BaseRLTrainer):
                             "plan_failure": "plan_fail",
                             "plan_guess": "plan_guess",
                             "execute_failure": "ex_fail",
+                            "nav1": "nav1",
+                            "nav2": "nav2",
+                            "gaze": "gaze",
                         }
                         # filename
                         fname_metrics = {
