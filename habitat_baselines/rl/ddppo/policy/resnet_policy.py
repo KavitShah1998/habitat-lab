@@ -33,12 +33,14 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
     build_rnn_state_encoder,
 )
 from habitat_baselines.rl.ppo import Net, Policy
+
 try:
     import rlf.rl.utils as rutils
     from orp.env_aux import TargetPointGoalGPSAndCompassSensor
 except:
     pass
 from habitat.core.spaces import ActionSpace
+
 
 @baseline_registry.register_policy
 class PointNavResNetPolicy(Policy):
@@ -84,7 +86,7 @@ class PointNavResNetPolicy(Policy):
             backbone=config.RL.DDPPO.backbone,
             normalize_visual_inputs="rgb" in observation_space.spaces,
             force_blind_policy=config.FORCE_BLIND_POLICY,
-            fuse_states = config.RL.POLICY.fuse_states,
+            fuse_states=config.RL.POLICY.fuse_states,
         )
 
 
@@ -223,10 +225,16 @@ class PointNavResNetNet(Net):
         rnn_input_size = self._n_prev_action
         n_input_goal = 0
 
-        if TargetPointGoalGPSAndCompassSensor.cls_uuid in observation_space.spaces:
-            n_input_goal = observation_space.spaces[
-                TargetPointGoalGPSAndCompassSensor.cls_uuid
-            ].shape[0] + 1
+        if (
+            TargetPointGoalGPSAndCompassSensor.cls_uuid
+            in observation_space.spaces
+        ):
+            n_input_goal = (
+                observation_space.spaces[
+                    TargetPointGoalGPSAndCompassSensor.cls_uuid
+                ].shape[0]
+                + 1
+            )
             self.tgt_embeding = nn.Linear(n_input_goal, 32)
             rnn_input_size += 32
         if (
@@ -319,8 +327,12 @@ class PointNavResNetNet(Net):
         # FUSE PROPRIOCEPTIVE STATE
         self.fuse_states = fuse_states
         if n_input_goal == 0 and len(fuse_states) > 0:
-            rnn_input_size += sum([observation_space.spaces[n].shape[0] for n in
-                    self.fuse_states])
+            rnn_input_size += sum(
+                [
+                    observation_space.spaces[n].shape[0]
+                    for n in self.fuse_states
+                ]
+            )
         else:
             self.fuse_states = []
 
@@ -478,8 +490,9 @@ class PointNavResNetNet(Net):
             x.append(self.goal_visual_fc(goal_output))
 
         if len(self.fuse_states) > 0:
-            x.append(torch.cat([observations[k] for k in self.fuse_states],
-                dim=-1))
+            x.append(
+                torch.cat([observations[k] for k in self.fuse_states], dim=-1)
+            )
 
         prev_actions = self.prev_action_embedding(
             ((prev_actions.float() + 1) * masks).long().squeeze(dim=-1)

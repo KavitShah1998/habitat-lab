@@ -49,6 +49,7 @@ class SimpleCNN(nn.Module):
         force_blind,
         head_only=False,
         arm_only=False,
+        init=True,
     ):
         super().__init__()
 
@@ -152,7 +153,7 @@ class SimpleCNN(nn.Module):
                 nn.ReLU(True),
             )
 
-        self.layer_init()
+        self.layer_init(init)
         self.count = 0
         self.debug_prefix = f"{time.time() * 1e7:.0f}"[-5:]
 
@@ -185,7 +186,9 @@ class SimpleCNN(nn.Module):
             )
         return tuple(out_dimension)
 
-    def layer_init(self):
+    def layer_init(self, init=True):
+        if not init:
+            return
         for layer in self.cnn:  # type: ignore
             if isinstance(layer, (nn.Conv2d, nn.Linear)):
                 nn.init.kaiming_normal_(

@@ -92,6 +92,7 @@ _C.RL.preemption.save_state_batch_only = False
 # -----------------------------------------------------------------------------
 _C.RL.POLICY = CN()
 _C.RL.POLICY.name = "PointNavResNetPolicy"
+_C.RL.POLICY.init = True
 _C.RL.POLICY.reset_moe_non_gating = False
 # -----------------------------------------------------------------------------
 # OBS_TRANSFORMS CONFIG

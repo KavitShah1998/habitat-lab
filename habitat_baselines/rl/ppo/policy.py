@@ -36,11 +36,15 @@ from habitat_baselines.utils.common import (
 
 class Policy(nn.Module, metaclass=abc.ABCMeta):
     def __init__(
-        self, net, action_space, gaussian_categorical=False, **kwargs
+        self,
+        net,
+        action_space,
+        gaussian_categorical=False,
+        init=True,
+        **kwargs,
     ):
         super().__init__()
         self.net = net
-
         if net is not None:
             if isinstance(action_space, ActionSpace):
                 self.action_distribution = CategoricalNet(
@@ -53,10 +57,10 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
                     )
                 else:
                     self.action_distribution = GaussianNet(
-                        self.net.output_size, action_space.shape[0]
+                        self.net.output_size, action_space.shape[0], init=init
                     )
 
-            self.critic = CriticHead(self.net.output_size)
+            self.critic = CriticHead(self.net.output_size, init=init)
 
         self.distribution = None
 
@@ -116,11 +120,12 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
 
 
 class CriticHead(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size, init=True):
         super().__init__()
         self.fc = nn.Linear(input_size, 1)
-        nn.init.orthogonal_(self.fc.weight)
-        nn.init.constant_(self.fc.bias, 0)
+        if init:
+            nn.init.orthogonal_(self.fc.weight)
+            nn.init.constant_(self.fc.bias, 0)
 
     def forward(self, x):
         return self.fc(x)
@@ -142,6 +147,7 @@ class PointNavBaselinePolicy(Policy):
                 **kwargs,
             ),
             action_space,
+            **kwargs,
         )
 
     @classmethod
@@ -156,6 +162,7 @@ class PointNavBaselinePolicy(Policy):
             goal_hidden_size=goal_hidden_size,
             fuse_states=config.RL.POLICY.fuse_states,
             force_blind=config.RL.POLICY.force_blind,
+            init=config.RL.POLICY.init,
         )
 
 
@@ -192,6 +199,7 @@ class PointNavBaselineNet(Net):
         goal_hidden_size,
         fuse_states,
         force_blind,
+        init=True,
     ):
         super().__init__()
 
@@ -212,7 +220,7 @@ class PointNavBaselineNet(Net):
             if self.num_cnns == 0:
                 force_blind = True
             self.visual_encoder = SimpleCNN(
-                observation_space, hidden_size, force_blind
+                observation_space, hidden_size, force_blind, init=init
             )
         elif self.num_cnns == 2:
             # We are using both cameras; make a CNN for each
@@ -228,11 +236,19 @@ class PointNavBaselineNet(Net):
             ]
             # Head CNN
             self.visual_encoder = SimpleCNN(
-                head_obs_space, hidden_size, force_blind, head_only=True
+                head_obs_space,
+                hidden_size,
+                force_blind,
+                head_only=True,
+                init=init,
             )
             # Arm CNN
             self.visual_encoder2 = SimpleCNN(
-                arm_obs_space, hidden_size, force_blind, arm_only=True
+                arm_obs_space,
+                hidden_size,
+                force_blind,
+                arm_only=True,
+                init=init,
             )
         else:
             raise RuntimeError(
@@ -244,13 +260,17 @@ class PointNavBaselineNet(Net):
         if self._goal_hidden_size != 0:
             self.goal_encoder = nn.Sequential(
                 initialized_linear(
-                    self._n_input_goal, self._goal_hidden_size, gain=np.sqrt(2)
+                    self._n_input_goal,
+                    self._goal_hidden_size,
+                    gain=np.sqrt(2),
+                    init=init,
                 ),
                 nn.ReLU(),
                 initialized_linear(
                     self._goal_hidden_size,
                     self._goal_hidden_size,
                     gain=np.sqrt(2),
+                    init=init,
                 ),
                 nn.ReLU(),
             )
@@ -258,7 +278,7 @@ class PointNavBaselineNet(Net):
         # Final RNN layer
         visual_size = 0 if self.is_blind else hidden_size * self.num_cnns
         self.state_encoder = build_rnn_state_encoder(
-            visual_size + self._goal_hidden_size, self._hidden_size
+            visual_size + self._goal_hidden_size, self._hidden_size, init=init
         )
 
         self.pred_visual_features = None
