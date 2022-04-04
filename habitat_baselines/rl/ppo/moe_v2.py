@@ -11,14 +11,14 @@ from habitat_baselines.rl.ppo.policy import Policy
 from habitat_baselines.utils.common import GaussianNet, initialized_linear
 
 
-def construct_mlp_base(input_size, hidden_size, num_layers=3):
+def construct_mlp_base(input_size, hidden_size, num_layers=3, init=True):
     """Returns 3-layer MLP as a list of layers"""
     layers = []
     prev_size = input_size
     for _ in range(num_layers):
         layers.append(
             initialized_linear(
-                int(prev_size), int(hidden_size), gain=np.sqrt(2)
+                int(prev_size), int(hidden_size), gain=np.sqrt(2), init=init
             )
         )
         layers.append(nn.ReLU())
@@ -34,7 +34,9 @@ class MoePolicy(Policy, nn.Module):
     A Net->Critic Network (used for RL training, unused for BC or test time)
     """
 
-    def __init__(self, observation_space, fuse_states, num_gates, num_actions):
+    def __init__(
+        self, observation_space, fuse_states, num_gates, num_actions, init=True
+    ):
         nn.Module.__init__(self)
         hidden_size = 512
         self.num_gates = num_gates
@@ -45,20 +47,20 @@ class MoePolicy(Policy, nn.Module):
 
         # Residual actor
         self.residual_actor = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            GaussianNet(hidden_size, num_actions),
+            *construct_mlp_base(input_size, hidden_size, init=init),
+            GaussianNet(hidden_size, num_actions, init=init),
         )
 
         # Gating actor
         self.gating_actor = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            GaussianNet(hidden_size, num_gates),
+            *construct_mlp_base(input_size, hidden_size, init=init),
+            GaussianNet(hidden_size, num_gates, init=init),
         )
 
         # Critic
         self.critic = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            initialized_linear(hidden_size, 1, gain=np.sqrt(2)),
+            *construct_mlp_base(input_size, hidden_size, init=init),
+            initialized_linear(hidden_size, 1, gain=np.sqrt(2), init=init),
         )
 
     def obs_to_tensor(self, observations, exclude=()):

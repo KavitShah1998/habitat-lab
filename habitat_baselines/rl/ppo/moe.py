@@ -74,6 +74,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             fuse_states=self.fuse_states,
             num_gates=self.num_experts,
             num_actions=BASE_ACTIONS + ARM_ACTIONS,
+            init=config.RL.POLICY.init,
         )
 
         # For RolloutStorage in ppo_trainer.py
@@ -99,6 +100,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             if ckpt_path == "":
                 return None, None
             ckpt = torch.load(ckpt_path, map_location=self.device)
+            ckpt["config"].RL.POLICY["init"] = False
             policy = ckpt_to_policy(ckpt, observation_space_copy)
             policy.eval()
             return ckpt, policy

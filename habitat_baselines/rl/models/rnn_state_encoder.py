@@ -384,6 +384,7 @@ class GRUStateEncoder(RNNStateEncoder):
         input_size: int,
         hidden_size: int,
         num_layers: int = 1,
+        init=True,
     ):
         super().__init__()
 
@@ -395,7 +396,8 @@ class GRUStateEncoder(RNNStateEncoder):
             num_layers=num_layers,
         )
 
-        self.layer_init()
+        if init:
+            self.layer_init()
 
 
 def build_rnn_state_encoder(
@@ -403,6 +405,7 @@ def build_rnn_state_encoder(
     hidden_size: int,
     rnn_type: str = "GRU",
     num_layers: int = 1,
+    init=True,
 ):
     r"""Factory for :ref:`RNNStateEncoder`.  Returns one with either a GRU or LSTM based on
         the specified RNN type.
@@ -414,8 +417,8 @@ def build_rnn_state_encoder(
     """
     rnn_type = rnn_type.lower()
     if rnn_type == "gru":
-        return GRUStateEncoder(input_size, hidden_size, num_layers)
+        return GRUStateEncoder(input_size, hidden_size, num_layers, init=init)
     elif rnn_type == "lstm":
-        return LSTMStateEncoder(input_size, hidden_size, num_layers)
+        return LSTMStateEncoder(input_size, hidden_size, num_layers, init=init)
     else:
         raise RuntimeError(f"Did not recognize rnn type '{rnn_type}'")

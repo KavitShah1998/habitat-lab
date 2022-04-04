@@ -61,13 +61,14 @@ class CustomFixedCategorical(torch.distributions.Categorical):  # type: ignore
 
 
 class CategoricalNet(nn.Module):
-    def __init__(self, num_inputs: int, num_outputs: int) -> None:
+    def __init__(self, num_inputs: int, num_outputs: int, init=True) -> None:
         super().__init__()
 
         self.linear = nn.Linear(num_inputs, num_outputs)
 
-        nn.init.orthogonal_(self.linear.weight, gain=0.01)
-        nn.init.constant_(self.linear.bias, 0)
+        if init:
+            nn.init.orthogonal_(self.linear.weight, gain=0.01)
+            nn.init.constant_(self.linear.bias, 0)
 
     def forward(self, x: Tensor) -> CustomFixedCategorical:
         x = self.linear(x)
@@ -96,6 +97,7 @@ class GaussianNet(nn.Module):
         num_outputs: int,
         std_min: float = 1e-6,
         std_max: float = 1,
+        init=True,
     ) -> None:
         super().__init__()
 
@@ -104,10 +106,11 @@ class GaussianNet(nn.Module):
         self.std_min = std_min
         self.std_max = std_max
 
-        nn.init.orthogonal_(self.mu.weight, gain=0.01)
-        nn.init.constant_(self.mu.bias, 0)
-        nn.init.orthogonal_(self.std.weight, gain=0.01)
-        nn.init.constant_(self.std.bias, 0)
+        if init:
+            nn.init.orthogonal_(self.mu.weight, gain=0.01)
+            nn.init.constant_(self.mu.bias, 0)
+            nn.init.orthogonal_(self.std.weight, gain=0.01)
+            nn.init.constant_(self.std.bias, 0)
 
     def forward(self, x: Tensor) -> CustomNormal:
         mu = torch.tanh(self.mu(x))
@@ -198,10 +201,11 @@ class CustomNormal(torch.distributions.normal.Normal):
         return self.mean
 
 
-def initialized_linear(in_features, out_features, gain, bias=0):
+def initialized_linear(in_features, out_features, gain, bias=0, init=True):
     layer = nn.Linear(in_features, out_features)
-    nn.init.orthogonal_(layer.weight, gain=gain)
-    nn.init.constant_(layer.bias, bias)
+    if init:
+        nn.init.orthogonal_(layer.weight, gain=gain)
+        nn.init.constant_(layer.bias, bias)
 
     return layer
 
