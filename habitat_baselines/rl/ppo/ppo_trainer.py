@@ -231,6 +231,28 @@ class PPOTrainer(BaseRLTrainer):
             nn.init.orthogonal_(self.actor_critic.critic.fc.weight)
             nn.init.constant_(self.actor_critic.critic.fc.bias, 0)
 
+        if self.config.RL.POLICY.reset_moe_non_gating:
+            print("Resetting MoE residual actor and critic...")
+            from habitat_baselines.rl.ppo.moe_v2 import construct_mlp_base
+            from habitat_baselines.utils.common import (
+                GaussianNet,
+                initialized_linear,
+            )
+
+            input_size = self.actor_critic.residual_actor[0].in_features
+            hidden_size = self.actor_critic.residual_actor[0].out_features
+            action_size = self.actor_critic.residual_actor[-1].mu.out_features
+            self.actor_critic.residual_actor = nn.Sequential(
+                *construct_mlp_base(input_size, hidden_size),
+                GaussianNet(hidden_size, action_size),
+            )
+            self.actor_critic.critic = nn.Sequential(
+                *construct_mlp_base(input_size, hidden_size),
+                initialized_linear(hidden_size, 1, gain=np.sqrt(2)),
+            )
+            self.actor_critic.residual_actor.to(self.device)
+            self.actor_critic.critic.to(self.device)
+
         self.agent = (DDPPO if self._is_distributed else PPO)(
             actor_critic=self.actor_critic,
             clip_param=ppo_cfg.clip_param,

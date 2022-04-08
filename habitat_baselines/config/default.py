@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import time
 import warnings
 from typing import List, Optional, Union
 
@@ -11,8 +12,6 @@ import numpy as np
 
 from habitat import get_config as get_task_config
 from habitat.config import Config as CN
-
-import time
 
 DEFAULT_CONFIG_DIR = "configs/"
 CONFIG_FILE_SEPARATOR = ","
@@ -93,6 +92,7 @@ _C.RL.preemption.save_state_batch_only = False
 # -----------------------------------------------------------------------------
 _C.RL.POLICY = CN()
 _C.RL.POLICY.name = "PointNavResNetPolicy"
+_C.RL.POLICY.reset_moe_non_gating = False
 # -----------------------------------------------------------------------------
 # OBS_TRANSFORMS CONFIG
 # -----------------------------------------------------------------------------
