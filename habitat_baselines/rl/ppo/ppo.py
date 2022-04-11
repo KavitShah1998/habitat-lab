@@ -35,6 +35,7 @@ class PPO(nn.Module):
         use_second_optimizer: bool = False,
         second_optimizer_key=None,
         lr_2=None,
+        warmup_critic_num_updates=-1,
     ) -> None:
 
         super().__init__()
@@ -50,6 +51,7 @@ class PPO(nn.Module):
 
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
+        self.warmup_critic_num_updates = warmup_critic_num_updates
 
         params_1, params_2 = [], []
         for name, p in actor_critic.named_parameters():
@@ -73,6 +75,7 @@ class PPO(nn.Module):
             self.device = torch.device("cpu")
 
         self.use_normalized_advantage = use_normalized_advantage
+        self.num_updates = 0
 
     def forward(self, *x):
         raise NotImplementedError
@@ -144,11 +147,15 @@ class PPO(nn.Module):
                 self.optimizer.zero_grad()
                 if self.optimizer2 is not None:
                     self.optimizer2.zero_grad()
-                total_loss = (
-                    value_loss * self.value_loss_coef
-                    + action_loss
-                    - dist_entropy * self.entropy_coef
-                )
+
+                if self.num_updates < self.warmup_critic_num_updates:
+                    total_loss = value_loss * self.value_loss_coef
+                else:
+                    total_loss = (
+                        value_loss * self.value_loss_coef
+                        + action_loss
+                        - dist_entropy * self.entropy_coef
+                    )
 
                 if not torch.isnan(total_loss).any():
                     self.before_backward(total_loss)
@@ -174,6 +181,8 @@ class PPO(nn.Module):
         value_loss_epoch /= num_updates
         action_loss_epoch /= num_updates
         dist_entropy_epoch /= num_updates
+
+        self.num_updates += 1
 
         return value_loss_epoch, action_loss_epoch, dist_entropy_epoch
 

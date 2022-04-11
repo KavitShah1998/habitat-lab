@@ -267,6 +267,7 @@ class PPOTrainer(BaseRLTrainer):
             use_second_optimizer=ppo_cfg.use_second_optimizer,
             second_optimizer_key=ppo_cfg.second_optimizer_key,
             lr_2=ppo_cfg.lr_2,
+            warmup_critic_num_updates=ppo_cfg.warmup_critic_num_updates,
         )
 
     def _init_envs(self, is_eval, config=None):
