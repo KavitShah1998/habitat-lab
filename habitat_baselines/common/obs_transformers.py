@@ -1191,6 +1191,64 @@ class Equirect2CubeMap(ProjectionTransformer):
         )
 
 
+from torchvision.transforms import RandomErasing
+
+
+@baseline_registry.register_obs_transformer(name="CUTOUT")
+class Cutout(ObservationTransformer):
+    """Black out rectangular regions selected randomly"""
+
+    def __init__(
+        self,
+        use_white,
+        trans_keys: Tuple[str] = (
+            "spot_left_depth",
+            "spot_right_depth",
+            "arm_depth",
+        ),
+    ):
+        """Args:
+        noise_percent: what percent of randomly selected pixel turn black
+        trans_keys: list of keys it will try to transform from obs
+        """
+        super().__init__()
+        self.trans_keys = trans_keys
+        self.cutout = RandomErasing(
+            value=1.0 if use_white else 0.0, scale=(0.02, 0.2)
+        )
+
+    def _transform_obs(self, obs: torch.Tensor) -> torch.Tensor:
+        # NHWC -> NCHW
+        obs = obs.permute(0, 3, 1, 2)
+
+        obs = self.cutout(obs)
+
+        # NCHW -> NHWC
+        obs = obs.permute(0, 2, 3, 1)
+        return obs
+
+    @classmethod
+    def from_config(cls, config: Config):
+        return cls(use_white=config.RL.POLICY.OBS_TRANSFORMS.CUTOUT.WHITE)
+
+    def transform_observation_space(self, observation_space: spaces.Dict):
+        # No transform needed
+        return observation_space
+
+    @torch.no_grad()
+    def forward(
+        self, observations: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        observations.update(
+            {
+                sensor: self._transform_obs(observations[sensor])
+                for sensor in self.trans_keys
+                if sensor in observations
+            }
+        )
+        return observations
+
+
 @baseline_registry.register_obs_transformer(name="CROP_SPOT_GRIPPER")
 class CropSpotGripper(ObservationTransformer):
     def __init__(
