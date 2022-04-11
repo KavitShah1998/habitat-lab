@@ -267,6 +267,7 @@ class RNNStateEncoder(nn.Module):
     """
 
     def layer_init(self):
+        return
         for name, param in self.rnn.named_parameters():
             if "weight" in name:
                 nn.init.orthogonal_(param)
@@ -386,16 +387,18 @@ class GRUStateEncoder(RNNStateEncoder):
         num_layers: int = 1,
     ):
         super().__init__()
-
+        print(1)
         self.num_recurrent_layers = num_layers
-
+        print(2)
         self.rnn = nn.GRU(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
         )
+        print(3)
 
         self.layer_init()
+        print(4)
 
 
 def build_rnn_state_encoder(

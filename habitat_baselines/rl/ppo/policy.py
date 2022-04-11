@@ -243,14 +243,13 @@ class PointNavBaselineNet(Net):
         self._goal_hidden_size = goal_hidden_size
         if self._goal_hidden_size != 0:
             self.goal_encoder = nn.Sequential(
-                initialized_linear(
-                    self._n_input_goal, self._goal_hidden_size, gain=np.sqrt(2)
+                nn.Linear(
+                    self._n_input_goal, self._goal_hidden_size
                 ),
                 nn.ReLU(),
-                initialized_linear(
+                nn.Linear(
                     self._goal_hidden_size,
                     self._goal_hidden_size,
-                    gain=np.sqrt(2),
                 ),
                 nn.ReLU(),
             )
@@ -294,7 +293,7 @@ class PointNavBaselineNet(Net):
             x.append(observations["visual_features"])
 
         # Save visual features for use by other policies (mixer policy)
-        self.pred_visual_features = torch.cat(x, dim=1)
+        self.pred_visual_features = torch.cat(x, dim=1) if x else None 
 
         # Non-visual observations
         if len(self.fuse_states) > 0:
