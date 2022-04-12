@@ -41,7 +41,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.fuse_states = config.RL.POLICY.fuse_states
         self.blind = config.RL.POLICY.force_blind
         self.obs_expert_actions = config.RL.POLICY.get(
-            "obs_teacher_actions", True
+            "obs_teacher_actions", False
         )
 
         # Determines if we use visual observations or features from experts
