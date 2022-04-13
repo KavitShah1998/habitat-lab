@@ -1201,11 +1201,7 @@ class Cutout(ObservationTransformer):
     def __init__(
         self,
         use_white,
-        trans_keys: Tuple[str] = (
-            "spot_left_depth",
-            "spot_right_depth",
-            "arm_depth",
-        ),
+        trans_keys: Tuple[str] = ("spot_left_depth", "spot_right_depth"),
     ):
         """Args:
         noise_percent: what percent of randomly selected pixel turn black
@@ -1229,7 +1225,13 @@ class Cutout(ObservationTransformer):
 
     @classmethod
     def from_config(cls, config: Config):
-        return cls(use_white=config.RL.POLICY.OBS_TRANSFORMS.CUTOUT.WHITE)
+        trans_keys = config.RL.POLICY.OBS_TRANSFORMS.CUTOUT.get(
+            "trans_keys", ("spot_left_depth", "spot_right_depth")
+        )
+        return cls(
+            use_white=config.RL.POLICY.OBS_TRANSFORMS.CUTOUT.WHITE,
+            trans_keys=trans_keys,
+        )
 
     def transform_observation_space(self, observation_space: spaces.Dict):
         # No transform needed
