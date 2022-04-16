@@ -1222,16 +1222,20 @@ class PPOTrainer(BaseRLTrainer):
             # f.write(f"Average episode {k}: {v:.4f}\n")
 
         # Save JSON file
-        all_episode_stats["agg_stats"] = aggregated_stats
-        json_dir = self.config.JSON_DIR
-        if json_dir != "":
-            os.makedirs(json_dir, exist_ok=True)
-            json_path = os.path.join(
-                json_dir,
-                f"{os.path.basename(checkpoint_path[:-4]).replace('.','_')}.json",
-            )
-            with open(json_path, "w") as f:
-                json.dump(all_episode_stats, f)
+        stats_episodes_json = {}
+        for k, v in stats_episodes.items():
+            stats_episodes_json[k[1]] = v
+        ckpt_str = os.path.basename(checkpoint_path)[:-4].replace(".", "_")
+        if self.config.get("JSON_PATH", "") == "":
+            stats_json_path = self.config.LOG_FILE[:-4] + f"_{ckpt_str}.json"
+        else:
+            stats_json_path = self.config.JSON_PATH
+
+        print("Saving json to:", os.path.abspath(stats_json_path))
+        json_dir = os.path.dirname(os.path.abspath(stats_json_path))
+        os.makedirs(json_dir, exist_ok=True)
+        with open(stats_json_path, "w") as f:
+            json.dump(stats_episodes_json, f, indent=4, sort_keys=True)
 
         writer.add_scalars(
             "eval_reward",
