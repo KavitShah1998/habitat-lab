@@ -124,6 +124,7 @@ class SimpleCNN(nn.Module):
                     stride=np.array(stride, dtype=np.float32),
                 )
 
+            self.flattened_feat_size = 32 * cnn_dims[0] * cnn_dims[1]
             self.cnn = nn.Sequential(
                 nn.Conv2d(
                     in_channels=self._n_input_rgb + self._n_input_depth,
@@ -147,7 +148,7 @@ class SimpleCNN(nn.Module):
                 ),
                 #  nn.ReLU(True),
                 nn.Flatten(),
-                nn.Linear(32 * cnn_dims[0] * cnn_dims[1], output_size),
+                nn.Linear(self.flattened_feat_size, output_size),
                 nn.ReLU(True),
             )
 
@@ -248,16 +249,23 @@ class SimpleCNN(nn.Module):
         cnn_input.extend([d.permute(0, 3, 1, 2) for d in depth_observations])
         cnn_inputs = torch.cat(cnn_input, dim=1)
 
-        # [BATCH x OUTPUT_SIZE (512)]
-        visual_features = self.cnn(cnn_inputs)
+        # Just return all zeros if all images are black
+        if cnn_inputs.sum() == 0:
+            num_envs = cnn_inputs.shape[0]
+            visual_features = torch.zeros(
+                num_envs, self.flattened_feat_size, device=cnn_inputs.device
+            )
+        else:
+            # [BATCH x OUTPUT_SIZE (512)]
+            visual_features = self.cnn(cnn_inputs)
 
-        if using_arm_depth:
-            # Mask out visual features where corresponding image was just zeros
-            non_zero_idxs = torch.nonzero(torch.sum(cnn_inputs, (1, 2, 3)))
-            visual_features_mask = torch.zeros_like(visual_features)
-            visual_features_mask[non_zero_idxs] = 1.0
+            if using_arm_depth:
+                # Mask out visual features where corresponding image was zeros
+                non_zero_idxs = torch.nonzero(torch.sum(cnn_inputs, (1, 2, 3)))
+                visual_features_mask = torch.zeros_like(visual_features)
+                visual_features_mask[non_zero_idxs] = 1.0
 
-            visual_features = visual_features * visual_features_mask
+                visual_features = visual_features * visual_features_mask
 
         if DEBUGGING:
             print(
