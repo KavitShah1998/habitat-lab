@@ -52,6 +52,7 @@ class SimpleCNN(nn.Module):
     ):
         super().__init__()
 
+        self.output_size = output_size
         if force_blind:
             self.cnn = nn.Sequential()
             self._n_input_rgb = 0
@@ -124,7 +125,6 @@ class SimpleCNN(nn.Module):
                     stride=np.array(stride, dtype=np.float32),
                 )
 
-            self.flattened_feat_size = 32 * cnn_dims[0] * cnn_dims[1]
             self.cnn = nn.Sequential(
                 nn.Conv2d(
                     in_channels=self._n_input_rgb + self._n_input_depth,
@@ -148,7 +148,7 @@ class SimpleCNN(nn.Module):
                 ),
                 #  nn.ReLU(True),
                 nn.Flatten(),
-                nn.Linear(self.flattened_feat_size, output_size),
+                nn.Linear(32 * cnn_dims[0] * cnn_dims[1], output_size),
                 nn.ReLU(True),
             )
 
@@ -253,7 +253,7 @@ class SimpleCNN(nn.Module):
         if cnn_inputs.sum() == 0:
             num_envs = cnn_inputs.shape[0]
             visual_features = torch.zeros(
-                num_envs, self.flattened_feat_size, device=cnn_inputs.device
+                num_envs, self.output_size, device=cnn_inputs.device
             )
         else:
             # [BATCH x OUTPUT_SIZE (512)]
