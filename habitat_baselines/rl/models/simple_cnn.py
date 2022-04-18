@@ -1,5 +1,7 @@
+import time
 from typing import Dict
 
+import cv2
 import numpy as np
 import torch
 from torch import nn as nn
@@ -15,6 +17,8 @@ HEAD_VISION_KEYS = [
     "spot_right_rgb",
 ]
 DEPTH_KEYS = [i for i in ARM_VISION_KEYS + HEAD_VISION_KEYS if "depth" in i]
+
+DEBUGGING = False
 
 
 def reject_obs_key(key, head_only, arm_only):
@@ -148,6 +152,8 @@ class SimpleCNN(nn.Module):
             )
 
         self.layer_init()
+        self.count = 0
+        self.debug_prefix = f"{time.time() * 1e7:.0f}"[-5:]
 
     def _conv_output_dim(
         self, dimension, padding, dilation, kernel_size, stride
@@ -222,6 +228,22 @@ class SimpleCNN(nn.Module):
                     if k in ARM_VISION_KEYS:
                         using_arm_depth = True
 
+        # Save images to disk for debugging
+        if DEBUGGING:
+            img = None
+            for orig_img in cnn_input + depth_observations:
+                h, w, c = orig_img.shape[1:]
+                for c_idx in range(c):
+                    new_img = orig_img[0][:, :, c_idx].cpu().numpy()
+                    if img is None:
+                        img = new_img
+                    else:
+                        img = np.hstack([img, new_img])
+            img = (img * 255).astype(np.uint8)
+            out_path = f"{self.debug_prefix}_{self.count:04}.png"
+            cv2.imwrite(out_path, img)
+            print("Saved visual observations to", out_path)
+            self.count += 1
         # permute tensors to [BATCH x CHANNEL x HEIGHT X WIDTH]
         cnn_input.extend([d.permute(0, 3, 1, 2) for d in depth_observations])
         cnn_inputs = torch.cat(cnn_input, dim=1)
@@ -236,5 +258,11 @@ class SimpleCNN(nn.Module):
             visual_features_mask[non_zero_idxs] = 1.0
 
             visual_features = visual_features * visual_features_mask
+
+        if DEBUGGING:
+            print(
+                f"[simple_cnn.py]: Sum of vis feats ({self.count}):",
+                visual_features.sum(),
+            )
 
         return visual_features
