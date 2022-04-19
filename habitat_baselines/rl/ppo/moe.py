@@ -139,9 +139,15 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             self.prev_place_masks,
         ) = [torch.ones(num_envs, 1, dtype=torch.bool) for _ in range(6)]
 
-        self.nav_action = None
-        self.gaze_action = None
-        self.place_action = None
+        self.nav_action = torch.zeros(
+            num_envs, BASE_ACTIONS, device=self.device
+        )
+        self.gaze_action = torch.zeros(
+            num_envs, ARM_ACTIONS, device=self.device
+        )
+        self.place_action = torch.zeros(
+            num_envs, ARM_ACTIONS, device=self.device
+        )
         self._obs_batching_cache = ObservationBatchingCache()
         self.active_envs = list(range(num_envs))
 
@@ -176,7 +182,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             self.place_masks = self.place_masks.to(device)
             self.prev_place_masks = self.prev_place_masks.to(device)
 
-    def get_expert_actions(self, batch, masks):
+    def get_expert_actions(self, batch, masks, gates=None):
         # Determine if one of the VectorEnvs were paused
         key = list(batch.keys())[0]
         if batch[key].shape[0] < len(self.active_envs):
@@ -193,24 +199,34 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         gaze_masks = torch.logical_and(masks_device, self.gaze_masks)
         if self.expert_place_policy is not None:
             place_masks = torch.logical_and(masks_device, self.place_masks)
+
+        num_envs = masks.shape[1]
+        if num_envs == 1 and gates is None:
+            gates = torch.ones(num_envs, 3)
+
         with torch.no_grad():
-            (
-                _,
-                self.nav_action,
-                _,
-                self.nav_rnn_hx,
-            ) = self.expert_nav_policy.act(
-                batch, self.nav_rnn_hx, self.nav_prev_actions, nav_masks
-            )
-            (
-                _,
-                self.gaze_action,
-                _,
-                self.gaze_rnn_hx,
-            ) = self.expert_gaze_policy.act(
-                batch, self.gaze_rnn_hx, self.gaze_prev_actions, gaze_masks
-            )
-            if self.expert_place_policy is not None:
+            if num_envs > 1 or gates[0, 0] > 0:
+                (
+                    _,
+                    self.nav_action,
+                    _,
+                    self.nav_rnn_hx,
+                ) = self.expert_nav_policy.act(
+                    batch, self.nav_rnn_hx, self.nav_prev_actions, nav_masks
+                )
+
+            if num_envs > 1 or gates[0, 1] > 0:
+                (
+                    _,
+                    self.gaze_action,
+                    _,
+                    self.gaze_rnn_hx,
+                ) = self.expert_gaze_policy.act(
+                    batch, self.gaze_rnn_hx, self.gaze_prev_actions, gaze_masks
+                )
+            if self.expert_place_policy is not None and (
+                num_envs > 1 or gates[0, 2] > 0
+            ):
                 self.expert_place_policy.net.speak = True
                 (
                     _,
@@ -340,7 +356,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
 
         # If expert actions were not observed, update them now
         if not self.obs_expert_actions:
-            self.get_expert_actions(observations, masks)
+            gates = action[:, ARM_ACTIONS + BASE_ACTIONS :]
+            self.get_expert_actions(observations, masks, gates=gates)
 
         return value, action, action_log_probs, rnn_hidden_states
 

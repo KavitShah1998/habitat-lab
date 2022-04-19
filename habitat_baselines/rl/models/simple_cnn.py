@@ -249,8 +249,8 @@ class SimpleCNN(nn.Module):
         cnn_input.extend([d.permute(0, 3, 1, 2) for d in depth_observations])
         cnn_inputs = torch.cat(cnn_input, dim=1)
 
-        # Just return all zeros if all images are black
-        if cnn_inputs.sum() == 0:
+        # Just return all zeros without using CNN if gripper images are black
+        if using_arm_depth and torch.count_nonzero(cnn_inputs).item() == 0:
             num_envs = cnn_inputs.shape[0]
             visual_features = torch.zeros(
                 num_envs, self.output_size, device=cnn_inputs.device
