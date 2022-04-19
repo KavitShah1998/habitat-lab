@@ -74,6 +74,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             fuse_states=self.fuse_states,
             num_gates=self.num_experts,
             num_actions=BASE_ACTIONS + ARM_ACTIONS,
+            use_rnn=config.RL.POLICY.get("use_rnn", False),
         )
 
         # For RolloutStorage in ppo_trainer.py
@@ -150,6 +151,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         )
         self._obs_batching_cache = ObservationBatchingCache()
         self.active_envs = list(range(num_envs))
+        self.deterministic_experts = False
 
     @classmethod
     def from_config(
@@ -212,7 +214,11 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     _,
                     self.nav_rnn_hx,
                 ) = self.expert_nav_policy.act(
-                    batch, self.nav_rnn_hx, self.nav_prev_actions, nav_masks
+                    batch,
+                    self.nav_rnn_hx,
+                    self.nav_prev_actions,
+                    nav_masks,
+                    deterministic=self.deterministic_experts,
                 )
 
             if num_envs > 1 or gates[0, 1] > 0:
@@ -222,7 +228,11 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     _,
                     self.gaze_rnn_hx,
                 ) = self.expert_gaze_policy.act(
-                    batch, self.gaze_rnn_hx, self.gaze_prev_actions, gaze_masks
+                    batch,
+                    self.gaze_rnn_hx,
+                    self.gaze_prev_actions,
+                    gaze_masks,
+                    deterministic=self.deterministic_experts,
                 )
             if self.expert_place_policy is not None and (
                 num_envs > 1 or gates[0, 2] > 0
@@ -238,6 +248,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.place_rnn_hx,
                     self.place_prev_actions,
                     place_masks,
+                    deterministic=self.deterministic_experts,
                 )
 
         self.nav_prev_actions.copy_(self.nav_action)
