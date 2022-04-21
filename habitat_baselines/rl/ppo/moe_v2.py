@@ -7,6 +7,9 @@ import numpy as np
 import torch
 from torch import nn as nn
 
+from habitat_baselines.rl.models.rnn_state_encoder import (
+    build_rnn_state_encoder,
+)
 from habitat_baselines.rl.ppo.policy import Policy
 from habitat_baselines.utils.common import GaussianNet, initialized_linear
 
@@ -34,9 +37,17 @@ class MoePolicy(Policy, nn.Module):
     A Net->Critic Network (used for RL training, unused for BC or test time)
     """
 
-    def __init__(self, observation_space, fuse_states, num_gates, num_actions):
+    def __init__(
+        self,
+        observation_space,
+        fuse_states,
+        num_gates,
+        num_actions,
+        use_rnn=False,
+    ):
         nn.Module.__init__(self)
         hidden_size = 512
+        self.use_rnn = use_rnn
         self.num_gates = num_gates
         self.num_actions = num_actions
         self.fuse_states = fuse_states
@@ -44,22 +55,41 @@ class MoePolicy(Policy, nn.Module):
         input_size = sum([spaces[n].shape[0] for n in self.fuse_states])
 
         # Residual actor
-        self.residual_actor = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            GaussianNet(hidden_size, num_actions),
-        )
+        if self.use_rnn:
+            self.residual_actor = RNNActorCritic(
+                nn.Sequential(*construct_mlp_base(input_size, hidden_size)),
+                GaussianNet(hidden_size, num_actions),
+            )
+        else:
+            self.residual_actor = nn.Sequential(
+                *construct_mlp_base(input_size, hidden_size),
+                GaussianNet(hidden_size, num_actions),
+            )
 
         # Gating actor
-        self.gating_actor = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            GaussianNet(hidden_size, num_gates),
-        )
+
+        if self.use_rnn:
+            self.gating_actor = RNNActorCritic(
+                nn.Sequential(*construct_mlp_base(input_size, hidden_size)),
+                GaussianNet(hidden_size, num_gates),
+            )
+        else:
+            self.gating_actor = nn.Sequential(
+                *construct_mlp_base(input_size, hidden_size),
+                GaussianNet(hidden_size, num_gates),
+            )
 
         # Critic
-        self.critic = nn.Sequential(
-            *construct_mlp_base(input_size, hidden_size),
-            initialized_linear(hidden_size, 1, gain=np.sqrt(2)),
-        )
+        if self.use_rnn:
+            self.critic = RNNActorCritic(
+                nn.Sequential(*construct_mlp_base(input_size, hidden_size)),
+                initialized_linear(hidden_size, 1, gain=np.sqrt(2)),
+            )
+        else:
+            self.critic = nn.Sequential(
+                *construct_mlp_base(input_size, hidden_size),
+                initialized_linear(hidden_size, 1, gain=np.sqrt(2)),
+            )
 
     def obs_to_tensor(self, observations, exclude=()):
         # Convert double to float if found
@@ -77,11 +107,21 @@ class MoePolicy(Policy, nn.Module):
         masks,  # don't use RNNs for now
         deterministic=False,
     ):
-        (
-            residual_distribution,
-            gating_distribution,
-            value,
-        ) = self.compute_actions_and_value(observations)
+        if self.use_rnn:
+            (
+                residual_distribution,
+                gating_distribution,
+                value,
+                rnn_hidden_states,
+            ) = self.compute_actions_and_value(
+                observations, rnn_hidden_states, masks
+            )
+        else:
+            (
+                residual_distribution,
+                gating_distribution,
+                value,
+            ) = self.compute_actions_and_value(observations)
 
         action_and_log_probs = []
         for d in [residual_distribution, gating_distribution]:
@@ -96,16 +136,32 @@ class MoePolicy(Policy, nn.Module):
         return value, action, action_log_probs, rnn_hidden_states
 
     def get_value(self, observations, rnn_hidden_states, prev_actions, masks):
+        if self.use_rnn:
+            return self.critic(
+                self.obs_to_tensor(observations),
+                rnn_hidden_states[:, :, 512 * 2 :],
+                masks,
+            )[0]
         return self.critic(self.obs_to_tensor(observations))
 
     def evaluate_actions(
         self, observations, rnn_hidden_states, prev_actions, masks, action
     ):
-        (
-            residual_distribution,
-            gating_distribution,
-            value,
-        ) = self.compute_actions_and_value(observations)
+        if self.use_rnn:
+            (
+                residual_distribution,
+                gating_distribution,
+                value,
+                rnn_hidden_states,
+            ) = self.compute_actions_and_value(
+                observations, rnn_hidden_states, masks
+            )
+        else:
+            (
+                residual_distribution,
+                gating_distribution,
+                value,
+            ) = self.compute_actions_and_value(observations)
 
         res_act, gate_act = torch.split(
             action, [self.num_actions, self.num_gates], dim=1
@@ -120,13 +176,51 @@ class MoePolicy(Policy, nn.Module):
 
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
 
-    def compute_actions_and_value(self, observations):
+    def compute_actions_and_value(
+        self, observations, rnn_hidden_states=None, masks=None
+    ):
         observations_tensor = self.obs_to_tensor(observations)
-        residual_distribution = self.residual_actor(observations_tensor)
-        gating_distribution = self.gating_actor(observations_tensor)
-        value = self.critic(observations_tensor)
+        if self.use_rnn:
+            assert rnn_hidden_states is not None
+            assert masks is not None
+            hx_1 = rnn_hidden_states[:, :, :512]
+            hx_2 = rnn_hidden_states[:, :, 512 : 512 * 2]
+            hx_3 = rnn_hidden_states[:, :, 512 * 2 :]
+            residual_distribution, hx_1 = self.residual_actor(
+                observations_tensor, hx_1, masks
+            )
+            gating_distribution, hx_2 = self.gating_actor(
+                observations_tensor, hx_2, masks
+            )
+            value, hx_3 = self.critic(observations_tensor, hx_3, masks)
+            rnn_hidden_states = torch.cat([hx_1, hx_2, hx_3], dim=2)
 
-        return residual_distribution, gating_distribution, value
+            return (
+                residual_distribution,
+                gating_distribution,
+                value,
+                rnn_hidden_states,
+            )
+        else:
+            residual_distribution = self.residual_actor(observations_tensor)
+            gating_distribution = self.gating_actor(observations_tensor)
+            value = self.critic(observations_tensor)
+            return residual_distribution, gating_distribution, value
 
     def forward(self, *x):
         raise NotImplementedError
+
+
+class RNNActorCritic(nn.Module):
+    def __init__(self, before_module, after_module, hidden_size=512):
+        super().__init__()
+        self.before_module = before_module
+        self.after_module = after_module
+        self.rnn = build_rnn_state_encoder(hidden_size, hidden_size)
+
+    def forward(self, observations, rnn_hidden_states, masks):
+        x_out = self.before_module(observations)
+        x_out, rnn_hidden_states = self.rnn(x_out, rnn_hidden_states, masks)
+        x_out = self.after_module(x_out)
+
+        return x_out, rnn_hidden_states
