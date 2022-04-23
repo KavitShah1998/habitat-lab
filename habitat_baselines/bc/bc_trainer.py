@@ -115,6 +115,13 @@ class BehavioralCloningMoe(BaseRLTrainer):
             self.config, self.moe, self.device, num_envs=self.num_envs
         )
         self.num_actions = self.prev_actions.shape[1]
+        if self.config.RL.POLICY.get("use_rnn", False):
+            self.rnn_hidden_states = torch.zeros(
+                self.num_envs,
+                1,  # num_recurrent_layers. SimpleCNN uses 1.
+                self.config.RL.PPO.hidden_size * 3,  # ppo_cfg.hidden_size,
+                device=self.device,
+            )
 
     def get_model_params(self):
         return self.moe.model_params

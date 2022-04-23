@@ -405,12 +405,18 @@ class PPOTrainer(BaseRLTrainer):
             num_rnn_layers = self.actor_critic.net.num_recurrent_layers
         else:
             num_rnn_layers = 0
+        if self.config.RL.POLICY.get("use_rnn", False):
+            rnn_hidden_size = 512 * 3
+            num_rnn_layers = 1
+        else:
+            rnn_hidden_size = ppo_cfg.hidden_size
+
         self.rollouts = RolloutStorage(
             ppo_cfg.num_steps,
             self.envs.num_envs,
             obs_space,
             self.policy_action_space,
-            ppo_cfg.hidden_size,
+            rnn_hidden_size,
             num_recurrent_layers=num_rnn_layers,
             is_double_buffered=ppo_cfg.use_double_buffered_sampler,
         )
