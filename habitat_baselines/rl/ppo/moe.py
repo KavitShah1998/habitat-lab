@@ -221,6 +221,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.nav_prev_actions,
                     nav_masks,
                     deterministic=self.deterministic_experts,
+                    actions_only=True,
                 )
 
             if num_envs > 1 or gates[0, 1] > 0:
@@ -235,6 +236,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.gaze_prev_actions,
                     gaze_masks,
                     deterministic=self.deterministic_experts,
+                    actions_only=True,
                 )
             if self.expert_place_policy is not None and (
                 num_envs > 1 or gates[0, 2] > 0
@@ -251,6 +253,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.place_prev_actions,
                     place_masks,
                     deterministic=self.deterministic_experts,
+                    actions_only=True,
                 )
 
         self.nav_prev_actions.copy_(self.nav_action)
