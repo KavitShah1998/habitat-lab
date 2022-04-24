@@ -361,13 +361,15 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         prev_actions,
         masks,
         deterministic=False,
+        actions_only=False,
     ):
         value, action, action_log_probs, rnn_hidden_states = super().act(
             observations,
             rnn_hidden_states,
             prev_actions,
             masks,
-            deterministic,
+            deterministic=deterministic,
+            actions_only=actions_only,
         )
 
         # If expert actions were not observed, update them now
@@ -420,6 +422,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         masks,
         deterministic=False,
         update_masks=True,
+        actions_only=False,
     ):
         """
         The residual actions need to be masked by the mask outputs in order for
@@ -436,6 +439,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             prev_actions,
             masks,
             deterministic,
+            actions_only=actions_only,
         )
 
         (
