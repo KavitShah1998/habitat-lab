@@ -74,17 +74,20 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
         prev_actions,
         masks,
         deterministic=False,
+        actions_only=False,
     ):
         features, rnn_hidden_states = self.net(
             observations, rnn_hidden_states, prev_actions, masks
         )
         distribution = self.action_distribution(features)
-        value = self.critic(features)
-
         if deterministic:
             action = distribution.mode()
         else:
             action = distribution.sample()
+        if actions_only:
+            return None, action, None, rnn_hidden_states
+
+        value = self.critic(features)
 
         action_log_probs = distribution.log_probs(action)
 
