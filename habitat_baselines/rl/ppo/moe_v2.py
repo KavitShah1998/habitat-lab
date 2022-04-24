@@ -113,6 +113,7 @@ class MoePolicy(Policy, nn.Module):
         prev_actions,  # don't use prev_actions for now
         masks,  # don't use RNNs for now
         deterministic=False,
+        actions_only=False,
     ):
         if self.use_rnn:
             (
@@ -121,24 +122,37 @@ class MoePolicy(Policy, nn.Module):
                 value,
                 rnn_hidden_states,
             ) = self.compute_actions_and_value(
-                observations, rnn_hidden_states, masks
+                observations,
+                rnn_hidden_states,
+                masks,
+                actions_only=actions_only,
             )
         else:
             (
                 residual_distribution,
                 gating_distribution,
                 value,
-            ) = self.compute_actions_and_value(observations)
+            ) = self.compute_actions_and_value(
+                observations, actions_only=actions_only
+            )
 
         action_and_log_probs = []
         for d in [residual_distribution, gating_distribution]:
             act = d.mode() if deterministic else d.sample()
-            log_probs = d.log_probs(act)
+            if actions_only:
+                log_probs = None
+            else:
+                log_probs = d.log_probs(act)
             action_and_log_probs.extend([act, log_probs])
+
         res_act, res_log_p, gate_act, gate_log_p = action_and_log_probs
 
         action = torch.cat([res_act, gate_act], dim=1)
-        action_log_probs = res_log_p + gate_log_p
+
+        if actions_only:
+            action_log_probs = None
+        else:
+            action_log_probs = res_log_p + gate_log_p
 
         return value, action, action_log_probs, rnn_hidden_states
 
@@ -184,7 +198,11 @@ class MoePolicy(Policy, nn.Module):
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
 
     def compute_actions_and_value(
-        self, observations, rnn_hidden_states=None, masks=None
+        self,
+        observations,
+        rnn_hidden_states=None,
+        masks=None,
+        actions_only=False,
     ):
         observations_tensor = self.obs_to_tensor(observations)
         if self.use_rnn:
@@ -199,7 +217,10 @@ class MoePolicy(Policy, nn.Module):
             gating_distribution, hx_2 = self.gating_actor(
                 observations_tensor, hx_2, masks
             )
-            value, hx_3 = self.critic(observations_tensor, hx_3, masks)
+            if actions_only:
+                value = None
+            else:
+                value, hx_3 = self.critic(observations_tensor, hx_3, masks)
             rnn_hidden_states = torch.cat([hx_1, hx_2, hx_3], dim=2)
 
             return (
@@ -211,7 +232,10 @@ class MoePolicy(Policy, nn.Module):
         else:
             residual_distribution = self.residual_actor(observations_tensor)
             gating_distribution = self.gating_actor(observations_tensor)
-            value = self.critic(observations_tensor)
+            if actions_only:
+                value = None
+            else:
+                value = self.critic(observations_tensor)
             return residual_distribution, gating_distribution, value
 
     def forward(self, *x):
