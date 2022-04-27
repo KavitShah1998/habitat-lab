@@ -204,7 +204,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         if self.expert_place_policy is not None:
             place_masks = torch.logical_and(masks_device, self.place_masks)
 
-        num_envs = masks.shape[1]
+        num_envs = masks.shape[0]
         if num_envs == 1 and gates is None:
             gates = torch.ones(num_envs, 3)
 
