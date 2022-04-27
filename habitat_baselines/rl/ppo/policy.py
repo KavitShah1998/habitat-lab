@@ -165,7 +165,7 @@ class PointNavBaselinePolicy(Policy):
             goal_hidden_size=goal_hidden_size,
             fuse_states=config.RL.POLICY.fuse_states,
             force_blind=config.RL.POLICY.force_blind,
-            init=config.RL.POLICY.init,
+            init=config.RL.POLICY.get("init", True),
         )
 
 
