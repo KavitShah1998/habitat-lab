@@ -1198,10 +1198,15 @@ class PPOTrainer(BaseRLTrainer):
         else:
             num_rnn_layers = 0
 
+        if self.config.RL.POLICY.get("use_rnn", False):
+            rnn_hidden_size = 512 * 3
+            num_rnn_layers = 1
+        else:
+            rnn_hidden_size = ppo_cfg.hidden_size
         test_recurrent_hidden_states = torch.zeros(
             self.config.NUM_ENVIRONMENTS,
             num_rnn_layers,
-            ppo_cfg.hidden_size,
+            rnn_hidden_size,
             device=self.device,
         )
 
