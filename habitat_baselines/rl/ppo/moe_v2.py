@@ -44,6 +44,7 @@ class MoePolicy(Policy, nn.Module):
         num_gates,
         num_actions,
         use_rnn=False,
+        blackout_gater=False,
         init=True,
     ):
         nn.Module.__init__(self)
@@ -52,6 +53,8 @@ class MoePolicy(Policy, nn.Module):
         self.num_gates = num_gates
         self.num_actions = num_actions
         self.fuse_states = fuse_states
+        self.blackout_gater = blackout_gater
+        self.blackout_obs = None
         spaces = observation_space.spaces
         input_size = sum([spaces[n].shape[0] for n in self.fuse_states])
 
@@ -62,6 +65,7 @@ class MoePolicy(Policy, nn.Module):
                     *construct_mlp_base(input_size, hidden_size, init=init)
                 ),
                 GaussianNet(hidden_size, num_actions, init=init),
+                init=init,
             )
         else:
             self.residual_actor = nn.Sequential(
@@ -77,6 +81,7 @@ class MoePolicy(Policy, nn.Module):
                     *construct_mlp_base(input_size, hidden_size, init=init)
                 ),
                 GaussianNet(hidden_size, num_gates, init=init),
+                init=init,
             )
         else:
             self.gating_actor = nn.Sequential(
@@ -91,6 +96,7 @@ class MoePolicy(Policy, nn.Module):
                     *construct_mlp_base(input_size, hidden_size, init=init)
                 ),
                 initialized_linear(hidden_size, 1, gain=np.sqrt(2), init=init),
+                init=init,
             )
         else:
             self.critic = nn.Sequential(
@@ -104,6 +110,33 @@ class MoePolicy(Policy, nn.Module):
             if v.dtype is torch.float64:
                 observations[k] = v.type(torch.float32)
         obs_keys = [k for k in self.fuse_states if k not in exclude]
+
+        if self.blackout_gater:
+            # Mask out visual features where corresponding image was zeros
+            num_envs = observations["goal_heading"].shape[0]
+
+            def am_close(env_idx):
+                dist = observations[
+                    "target_point_goal_gps_and_compass_sensor"
+                ][env_idx][0]
+                heading = observations["goal_heading"][env_idx][0]
+                return dist < 0.3 and abs(heading) < 0.174533
+
+            blind_inds = [i for i in range(num_envs) if am_close(i)]
+            # Two assumptions: nav features are first, and are same length as
+            # gaze features
+            obs_copy = observations.copy()
+            visual_features = obs_copy["visual_features"]
+            visual_feat_len = visual_features.shape[1]
+            nav_feats = visual_features[:, visual_feat_len // 2]
+            feats_mask = torch.ones_like(nav_feats)
+            feats_mask[blind_inds] = 0.0
+            visual_features[:, visual_feat_len // 2] = nav_feats * feats_mask
+            obs_copy["visual_features"] = visual_features
+            self.blackout_obs = torch.cat(
+                [obs_copy[k] for k in obs_keys], dim=1
+            )
+
         return torch.cat([observations[k] for k in obs_keys], dim=1)
 
     def act(
@@ -214,8 +247,13 @@ class MoePolicy(Policy, nn.Module):
             residual_distribution, hx_1 = self.residual_actor(
                 observations_tensor, hx_1, masks
             )
+
+            if self.blackout_gater:
+                gating_in = self.blackout_obs
+            else:
+                gating_in = observations_tensor
             gating_distribution, hx_2 = self.gating_actor(
-                observations_tensor, hx_2, masks
+                gating_in, hx_2, masks
             )
             if actions_only:
                 value = None
@@ -243,11 +281,13 @@ class MoePolicy(Policy, nn.Module):
 
 
 class RNNActorCritic(nn.Module):
-    def __init__(self, before_module, after_module, hidden_size=512):
+    def __init__(
+        self, before_module, after_module, hidden_size=512, init=True
+    ):
         super().__init__()
         self.before_module = before_module
         self.after_module = after_module
-        self.rnn = build_rnn_state_encoder(hidden_size, hidden_size)
+        self.rnn = build_rnn_state_encoder(hidden_size, hidden_size, init=init)
 
     def forward(self, observations, rnn_hidden_states, masks):
         x_out = self.before_module(observations)

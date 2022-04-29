@@ -75,6 +75,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             num_gates=self.num_experts,
             num_actions=BASE_ACTIONS + ARM_ACTIONS,
             use_rnn=config.RL.POLICY.get("use_rnn", False),
+            blackout_gater=config.RL.POLICY.get("blackout_gater", False),
             init=config.RL.POLICY.init,
         )
 
