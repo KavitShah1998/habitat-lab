@@ -881,6 +881,11 @@ class PPOTrainer(BaseRLTrainer):
             optimizer=self.agent.optimizer,
             lr_lambda=lambda x: 1 - self.percent_done(),
         )
+        if self.agent.optimizer2 is not None:
+            lr_scheduler2 = LambdaLR(
+                optimizer=self.agent.optimizer2,
+                lr_lambda=lambda x: 1 - self.percent_done(),
+            )
 
         resume_state = load_resume_state(self.config)
         if resume_state is not None:
@@ -1009,6 +1014,7 @@ class PPOTrainer(BaseRLTrainer):
 
                 if ppo_cfg.use_linear_lr_decay:
                     lr_scheduler.step()  # type: ignore
+                    lr_scheduler2.step()  # type: ignore
 
                 self.num_updates_done += 1
                 losses = self._coalesce_post_step(

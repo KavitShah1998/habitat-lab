@@ -154,7 +154,9 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         )
         self._obs_batching_cache = ObservationBatchingCache()
         self.active_envs = list(range(num_envs))
-        self.deterministic_experts = False
+        self.deterministic_nav = False
+        self.deterministic_gaze = False
+        self.deterministic_place = False
 
     @classmethod
     def from_config(
@@ -221,7 +223,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.nav_rnn_hx,
                     self.nav_prev_actions,
                     nav_masks,
-                    deterministic=self.deterministic_experts,
+                    deterministic=self.deterministic_nav,
                     actions_only=True,
                 )
 
@@ -236,7 +238,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.gaze_rnn_hx,
                     self.gaze_prev_actions,
                     gaze_masks,
-                    deterministic=self.deterministic_experts,
+                    deterministic=self.deterministic_gaze,
                     actions_only=True,
                 )
             if self.expert_place_policy is not None and (
@@ -253,7 +255,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     self.place_rnn_hx,
                     self.place_prev_actions,
                     place_masks,
-                    deterministic=self.deterministic_experts,
+                    deterministic=self.deterministic_place,
                     actions_only=True,
                 )
 
