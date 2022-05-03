@@ -226,6 +226,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     deterministic=self.deterministic_nav,
                     actions_only=True,
                 )
+                print("nav_masks1231234451:", nav_masks[0].item())
 
             if num_envs > 1 or gates[0, 1] > 0:
                 (
