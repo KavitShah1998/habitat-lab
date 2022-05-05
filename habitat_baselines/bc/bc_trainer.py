@@ -398,6 +398,8 @@ class BehavioralCloningMoe(BaseRLTrainer):
                     ckpt_path = osp.join(self.checkpoint_folder, filename)
                     torch.save(checkpoint, ckpt_path)
                     print("Saved checkpoint:", ckpt_path)
+                    if ckpt_id >= 50:
+                        break
 
         self.envs.close()
 
