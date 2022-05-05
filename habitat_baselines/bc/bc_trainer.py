@@ -43,9 +43,6 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.config = config
         self.device = torch.device("cuda", 0)
 
-        if not os.path.isdir(self.config.CHECKPOINT_FOLDER):
-            os.makedirs(self.config.CHECKPOINT_FOLDER)
-
         self.moe = None
         self.prev_actions = None
         self.masks = None
@@ -61,12 +58,17 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.sl_lr = config.SL_LR
         self.policy_name = config.RL.POLICY.name
         self.total_num_steps = config.TOTAL_NUM_STEPS
-        self.checkpoint_folder = config.CHECKPOINT_FOLDER
+        self.checkpoint_folder = osp.join(
+            config.CHECKPOINT_FOLDER, config.PREFIX
+        )
         self.tb_dir = config.TENSORBOARD_DIR
         self.bc_loss_type = config.BC_LOSS_TYPE
         self.load_weights = config.RL.DDPPO.pretrained
         self.teacher_forcing = config.TEACHER_FORCING
         self.num_envs = config.NUM_PROCESSES
+
+        if not os.path.isdir(self.checkpoint_folder):
+            os.makedirs(self.checkpoint_folder)
 
     def setup_teacher_student(self, del_envs=False):
         # Envs MUST be instantiated first
