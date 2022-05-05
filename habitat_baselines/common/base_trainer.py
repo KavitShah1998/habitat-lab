@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+import sys
 import time
 from typing import Any, ClassVar, Dict, List, Tuple, Union
 
@@ -22,22 +23,24 @@ from habitat_baselines.utils.common import (
     poll_checkpoint_folder,
 )
 
-import sys
-sys.path.insert(0, './')
+sys.path.insert(0, "./")
 import numpy as np
+
 try:
-    from orp.dataset import OrpNavDatasetV0
-    from orp.sim.simulator import OrpSim
-    from orp.env_aux import *
     from orp.controllers.base_ctrls import *
+    from orp.dataset import OrpNavDatasetV0
+    from orp.env_aux import *
+    from orp.sim.simulator import OrpSim
 except:
     pass
 import math
 import subprocess
 
+
 def get_logger(config, args, flush_secs):
     import sys
-    sys.path.insert(0, './')
+
+    sys.path.insert(0, "./")
     from method.orp_log_adapter import CustomLogger
 
     if config.write_tb:
@@ -45,7 +48,9 @@ def get_logger(config, args, flush_secs):
         config.defrost()
         # Inject the prefix into all of the filepaths
         config.VIDEO_DIR = os.path.join(config.VIDEO_DIR, args.prefix)
-        config.CHECKPOINT_FOLDER = os.path.join(config.CHECKPOINT_FOLDER, args.prefix)
+        config.CHECKPOINT_FOLDER = os.path.join(
+            config.CHECKPOINT_FOLDER, args.prefix
+        )
         if not os.path.exists(config.VIDEO_DIR):
             os.makedirs(config.VIDEO_DIR)
         if not os.path.exists(config.CHECKPOINT_FOLDER):
@@ -55,24 +60,26 @@ def get_logger(config, args, flush_secs):
         if not os.path.exists(real_tb_dir):
             os.makedirs(real_tb_dir)
 
-
         ret = TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
     else:
         # ret = CustomLogger(not config.no_wb, args, config)
         ret = CustomLogger(config.no_wb, args, config)
-    out_cfg_path = os.path.join(config.CHECKPOINT_FOLDER, 'cfg.txt')
-    print('out path is ', out_cfg_path)
-    with open(out_cfg_path, 'w') as f:
+    out_cfg_path = os.path.join(config.CHECKPOINT_FOLDER, "cfg.txt")
+    print("out path is ", out_cfg_path)
+    with open(out_cfg_path, "w") as f:
         f.write(str(config))
-        f.write('\n')
+        f.write("\n")
         f.write(str(args))
         try:
-            out = subprocess.check_output(['git', '-C', '../habitat-sim/.git', 'rev-parse', 'HEAD'])
+            out = subprocess.check_output(
+                ["git", "-C", "../habitat-sim/.git", "rev-parse", "HEAD"]
+            )
             print(f"Using HabSim version {out}")
-            f.write("hab sim version "+str(out)+"\n")
+            f.write("hab sim version " + str(out) + "\n")
         except:
             print("Could not find HabSim version")
     return ret
+
 
 class BaseTrainer:
     r"""Generic trainer class that serves as a base template for more
@@ -146,44 +153,45 @@ class BaseTrainer:
             ), "Must specify a directory for storing videos on disk"
 
         import sys
-        sys.path.insert(0, './')
-        from orp_env_adapter import get_hab_args
+
+        sys.path.insert(0, "./")
         from method.orp_log_adapter import CustomLogger
-        args = get_hab_args(self.config, './config.yaml')
+        from orp_env_adapter import get_hab_args
+
+        args = get_hab_args(self.config, "./config.yaml")
 
         if self.config.EVAL_CONCUR:
             found_f = None
             # 1 hour
-            timeout_seconds = 60*60
+            timeout_seconds = 60 * 60
             i = 0
-            look_prefix = self.config.PREFIX.split('-')[-1]
+            look_prefix = self.config.PREFIX.split("-")[-1]
             while found_f is None and i < timeout_seconds:
                 for f in os.listdir(self.config.EVAL_CKPT_PATH_DIR):
-                    if look_prefix in f and 'eval' not in f:
+                    if look_prefix in f and "eval" not in f:
                         found_f = f
                         break
-                print('Could not find', look_prefix, 'waiting...')
+                print("Could not find", look_prefix, "waiting...")
                 time.sleep(2)
-                i+= 1
+                i += 1
             if found_f is None:
-                raise ValueError('Timed out waiting for checkpoint directory to be created')
+                raise ValueError(
+                    "Timed out waiting for checkpoint directory to be created"
+                )
             self.config.defrost()
             self.config.EVAL_CKPT_PATH_DIR = os.path.join(
-                    self.config.EVAL_CKPT_PATH_DIR, found_f)
+                self.config.EVAL_CKPT_PATH_DIR, found_f
+            )
             self.config.freeze()
-            print('Found out folder ', self.config.EVAL_CKPT_PATH_DIR)
+            print("Found out folder ", self.config.EVAL_CKPT_PATH_DIR)
 
         if self.config.EVAL.EMPTY:
             self._eval_checkpoint_nodes(
-                self.config.EVAL_CKPT_PATH_DIR,
-                checkpoint_index=1,
-                args=args
+                self.config.EVAL_CKPT_PATH_DIR, checkpoint_index=1, args=args
             )
         elif os.path.isfile(self.config.EVAL_CKPT_PATH_DIR):
             # evaluate singe checkpoint
-            proposed_index = get_checkpoint_id(
-                self.config.EVAL_CKPT_PATH_DIR
-            )
+            proposed_index = get_checkpoint_id(self.config.EVAL_CKPT_PATH_DIR)
             if proposed_index is not None:
                 ckpt_idx = proposed_index
             else:
@@ -191,7 +199,7 @@ class BaseTrainer:
             self._eval_checkpoint_nodes(
                 self.config.EVAL_CKPT_PATH_DIR,
                 checkpoint_index=ckpt_idx,
-                args=args
+                args=args,
             )
         else:
             with get_logger(self.config, args, self.flush_secs) as writer:
@@ -203,7 +211,9 @@ class BaseTrainer:
                         current_ckpt = poll_checkpoint_folder(
                             self.config.EVAL_CKPT_PATH_DIR, prev_ckpt_ind
                         )
-                        if current_ckpt is not None and current_ckpt.endswith('.txt'):
+                        if current_ckpt is not None and current_ckpt.endswith(
+                            ".txt"
+                        ):
                             prev_ckpt_ind += 1
                             current_ckpt = None
                         time.sleep(2)  # sleep for 2 secs before polling again
@@ -219,13 +229,17 @@ class BaseTrainer:
 
     # pylint: disable=access-member-before-definition
     def _eval_checkpoint_nodes(self, checkpoint_path, checkpoint_index, args):
-        from method.orp_log_adapter import CustomLogger
         import random
         import string
-        if 'EVAL_NODE' in self.config:
+
+        from method.orp_log_adapter import CustomLogger
+
+        if "EVAL_NODE" in self.config:
             if isinstance(self.config.EVAL_NODE, str):
                 eval_nodes = eval(self.config.EVAL_NODE)
-                assert isinstance(eval_nodes, list), 'Eval nodes must be a list'
+                assert isinstance(
+                    eval_nodes, list
+                ), "Eval nodes must be a list"
             elif isinstance(self.config.EVAL_NODE, list):
                 eval_nodes = self.config.EVAL_NODE
             else:
@@ -238,71 +252,79 @@ class BaseTrainer:
 
         # Compute before the main loop so no random seed affects this.
         rnd = random.Random(None)
-        rnd_ident = ''.join(rnd.sample(string.ascii_uppercase + string.digits, k=4))
+        rnd_ident = "".join(
+            rnd.sample(string.ascii_uppercase + string.digits, k=4)
+        )
 
         base_prefix = args.prefix
         for eval_node in eval_nodes:
-            if eval_node is not None and base_prefix != 'debug':
-                args.prefix = base_prefix + '_' + rnd_ident + '_' + str(eval_node)
-                print('Assigning eval prefix', args.prefix)
+            if eval_node is not None and base_prefix != "debug":
+                args.prefix = (
+                    base_prefix + "_" + rnd_ident + "_" + str(eval_node)
+                )
+                print("Assigning eval prefix", args.prefix)
             config_copy = orig_config.clone()
             self.config = config_copy
             with get_logger(self.config, args, self.flush_secs) as writer:
                 if eval_node is not None:
                     self.config.defrost()
-                    hab_sets = orig_hab_set.split(',')
+                    hab_sets = orig_hab_set.split(",")
                     if len(hab_sets) == 0:
                         hab_sets = []
                     hab_sets.append("TASK_CONFIG.EVAL_NODE=%i" % eval_node)
-                    self.config.hab_set = ','.join(hab_sets)
+                    self.config.hab_set = ",".join(hab_sets)
                     self.config.freeze()
-                if ('rlt_name' in self.config.RL.POLICY
-                        and self.config.RL.POLICY.rlt_name == 'NnHighLevelPolicy'
-                        and os.path.isdir(self.config.pick_nn)):
+                if (
+                    "rlt_name" in self.config.RL.POLICY
+                    and self.config.RL.POLICY.rlt_name == "NnHighLevelPolicy"
+                    and os.path.isdir(self.config.pick_nn)
+                ):
                     # Evaluate across all checkpoints in each of the
                     # directories
-                    self._eval_rlt_multi_checkpoint(checkpoint_path, writer, checkpoint_index)
+                    self._eval_rlt_multi_checkpoint(
+                        checkpoint_path, writer, checkpoint_index
+                    )
                 else:
                     self._eval_checkpoint(
-                            checkpoint_path,
-                            writer,
-                            checkpoint_index)
+                        checkpoint_path, writer, checkpoint_index
+                    )
 
-    def _eval_rlt_multi_checkpoint(self, checkpoint_path, writer, checkpoint_index):
+    def _eval_rlt_multi_checkpoint(
+        self, checkpoint_path, writer, checkpoint_index
+    ):
         all_ckpts_dirs = {
-                'pick_nn': self.config.pick_nn,
-                'place_nn': self.config.place_nn,
-                'open_fridge_nn': self.config.open_fridge_nn,
-                'close_fridge_nn': self.config.close_fridge_nn,
-                'open_cab_nn': self.config.open_cab_nn,
-                'close_cab_nn': self.config.close_cab_nn,
-                'nav_nn': self.config.nav_nn,
-                }
-        all_ckpts = {k: os.listdir(v) for k,v in all_ckpts_dirs.items()}
+            "pick_nn": self.config.pick_nn,
+            "place_nn": self.config.place_nn,
+            "open_fridge_nn": self.config.open_fridge_nn,
+            "close_fridge_nn": self.config.close_fridge_nn,
+            "open_cab_nn": self.config.open_cab_nn,
+            "close_cab_nn": self.config.close_cab_nn,
+            "nav_nn": self.config.nav_nn,
+        }
+        all_ckpts = {k: os.listdir(v) for k, v in all_ckpts_dirs.items()}
 
         # Remove all non checkpoint files
-        all_ckpts = {k: [x for x in v if '.pth' in x and 'resume-state' not in x]
-                for k, v in all_ckpts.items()}
+        all_ckpts = {
+            k: [x for x in v if ".pth" in x and "resume-state" not in x]
+            for k, v in all_ckpts.items()
+        }
 
         # Sort checkpoint order
         all_ckpts = {
-                k: sorted(v,key=lambda x: int(x.split('.')[-2]))
-                for k, v in all_ckpts.items()
-                }
+            k: sorted(v, key=lambda x: int(x.split(".")[-2]))
+            for k, v in all_ckpts.items()
+        }
 
         max_len = max([len(x) for x in all_ckpts.values()])
         EVAL_COUNT = 11
-        fracs = [i / (EVAL_COUNT-1) for i in range(EVAL_COUNT)]
+        fracs = [i / (EVAL_COUNT - 1) for i in range(EVAL_COUNT)]
         for frac in fracs:
             for k, ckpts in all_ckpts.items():
                 use_idx = math.ceil(len(ckpts) * frac)
-                self.config[k] = os.path.join(all_ckpts_dirs[k],
-                        ckpts[use_idx])
-            self._eval_checkpoint(
-                    checkpoint_path,
-                    writer,
-                    checkpoint_index)
-
+                self.config[k] = os.path.join(
+                    all_ckpts_dirs[k], ckpts[use_idx]
+                )
+            self._eval_checkpoint(checkpoint_path, writer, checkpoint_index)
 
     def _eval_checkpoint(
         self,
