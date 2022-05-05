@@ -52,13 +52,13 @@ def get_logger(config, args, flush_secs):
             config.CHECKPOINT_FOLDER, args.prefix
         )
         if not os.path.exists(config.VIDEO_DIR):
-            os.makedirs(config.VIDEO_DIR)
+            os.makedirs(config.VIDEO_DIR, exist_ok=True)
         if not os.path.exists(config.CHECKPOINT_FOLDER):
-            os.makedirs(config.CHECKPOINT_FOLDER)
+            os.makedirs(config.CHECKPOINT_FOLDER, exist_ok=True)
 
         config.freeze()
         if not os.path.exists(real_tb_dir):
-            os.makedirs(real_tb_dir)
+            os.makedirs(real_tb_dir, exist_ok=True)
 
         ret = TensorboardWriter(real_tb_dir, flush_secs=flush_secs)
     else:
