@@ -1014,7 +1014,8 @@ class PPOTrainer(BaseRLTrainer):
 
                 if ppo_cfg.use_linear_lr_decay:
                     lr_scheduler.step()  # type: ignore
-                    lr_scheduler2.step()  # type: ignore
+                    if self.agent.optimizer2 is not None:
+                        lr_scheduler2.step()  # type: ignore
 
                 self.num_updates_done += 1
                 losses = self._coalesce_post_step(
