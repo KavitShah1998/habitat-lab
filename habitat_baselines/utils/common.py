@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import glob
+import math
 import os
 import re
 import shutil
@@ -89,6 +90,11 @@ class CustomNormal(torch.distributions.normal.Normal):
     def mode(self):
         return self.mean
 
+    def entropy(self, dont_sum=False):
+        ent = 0.5 + 0.5 * math.log(2 * math.pi) + torch.log(self.scale)
+        if not dont_sum:
+            ent = ent.sum(1)  # noqa
+        return ent
 
 class GaussianNet(nn.Module):
     def __init__(
@@ -186,19 +192,6 @@ class CustomNormalCategorical:
 
     def entropy(self):
         return self.gaussian.entropy() + self.categorical.entropy()
-
-
-class CustomNormal(torch.distributions.normal.Normal):
-    def sample(
-        self, sample_shape: Size = torch.Size()  # noqa: B008
-    ) -> Tensor:
-        return super().rsample(sample_shape)
-
-    def log_probs(self, actions):
-        return super().log_prob(actions).sum(-1).unsqueeze(-1)
-
-    def mode(self):
-        return self.mean
 
 
 def initialized_linear(in_features, out_features, gain, bias=0, init=True):
