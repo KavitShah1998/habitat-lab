@@ -116,6 +116,8 @@ class PPO(nn.Module):
                     batch["masks"],
                     batch["actions"],
                 )
+                if dist_entropy.shape[1] != 1:
+                    dist_entropy = dist_entropy.sum(1, keepdims=True)
 
                 ratio = torch.exp(action_log_probs - batch["action_log_probs"])
                 surr1 = ratio * batch["advantages"]
