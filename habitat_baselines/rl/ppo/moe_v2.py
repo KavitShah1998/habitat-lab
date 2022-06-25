@@ -142,9 +142,9 @@ class MoePolicy(Policy, nn.Module):
     def act(
         self,
         observations,
-        rnn_hidden_states,  # don't use RNNs for now
+        rnn_hidden_states,
         prev_actions,  # don't use prev_actions for now
-        masks,  # don't use RNNs for now
+        masks,
         deterministic=False,
         actions_only=False,
     ):
