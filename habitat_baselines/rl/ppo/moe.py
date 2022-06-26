@@ -411,6 +411,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         self.residuals_on_inactive = config.RL.POLICY.residuals_on_inactive
         self.use_residuals = config.RL.POLICY.use_residuals
         self.dont_digitize = config.RL.POLICY.dont_digitize
+        self.selective_corrective = config.RL.POLICY.selective_corrective
         self.nav_action_mask = None
         self.gaze_action_mask = None
         self.place_action_mask = None
@@ -592,6 +593,30 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         }
 
         return step_data
+
+    def evaluate_actions(
+        self, observations, rnn_hidden_states, prev_actions, masks, action
+    ):
+        (
+            value,
+            action_log_probs,
+            distribution_entropy,
+            rnn_hidden_states,
+        ) = super().evaluate_actions(
+            observations, rnn_hidden_states, prev_actions, masks, action
+        )
+        if self.selective_corrective:
+            # Action would only exactly equal 0.0 for parts of corrective
+            # actions that were silenced in the act() method. By zeroing the
+            # log_probs, we prevent actions relating to the corrective actor
+            # from contributing to the loss.
+            action_log_probs = torch.where(
+                torch.eq(action, 0.0),
+                torch.zeros_like(action_log_probs),
+                action_log_probs,
+            )
+
+        return value, action_log_probs, distribution_entropy, rnn_hidden_states
 
 
 @baseline_registry.register_policy
