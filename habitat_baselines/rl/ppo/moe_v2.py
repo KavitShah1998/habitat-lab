@@ -185,7 +185,7 @@ class MoePolicy(Policy, nn.Module):
         if actions_only:
             action_log_probs = None
         else:
-            action_log_probs = res_log_p + gate_log_p
+            action_log_probs = torch.cat([res_log_p, gate_log_p], dim=1)
 
         return value, action, action_log_probs, rnn_hidden_states
 
