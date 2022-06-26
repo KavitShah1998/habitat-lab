@@ -175,7 +175,7 @@ class MoePolicy(Policy, nn.Module):
             if actions_only:
                 log_probs = None
             else:
-                log_probs = d.log_probs(act)
+                log_probs = d.log_probs(act, get_sum=False)
             action_and_log_probs.extend([act, log_probs])
 
         res_act, res_log_p, gate_act, gate_log_p = action_and_log_probs

@@ -471,6 +471,18 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         action = torch.cat(
             [residual_arm_actions, residual_base_actions, expert_masks], dim=1
         )
+        if self.selective_corrective:
+            # Action would only exactly equal 0.0 for parts of corrective
+            # actions that were silenced in the act() method. By zeroing the
+            # log_probs, we prevent actions relating to the corrective actor
+            # from contributing to the loss.
+            action_log_probs = torch.where(
+                torch.eq(action, 0.0),
+                torch.zeros_like(action_log_probs),
+                action_log_probs,
+            )
+        if action_log_probs.shape[1] > 1:
+            action_log_probs = action_log_probs.sum(1, keepdims=True)
 
         return value, action, action_log_probs, rnn_hidden_states
 
