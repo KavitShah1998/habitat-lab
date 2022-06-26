@@ -220,12 +220,19 @@ class MoePolicy(Policy, nn.Module):
         res_act, gate_act = torch.split(
             action, [self.num_actions, self.num_gates], dim=1
         )
-
-        action_log_probs = gating_distribution.log_probs(
-            gate_act
-        ) + residual_distribution.log_probs(res_act)
-        distribution_entropy = (
-            residual_distribution.entropy() + gating_distribution.entropy()
+        action_log_probs = torch.cat(
+            [
+                residual_distribution.log_probs(res_act, get_sum=False),
+                gating_distribution.log_probs(gate_act, get_sum=False),
+            ],
+            dim=1
+        )
+        distribution_entropy = torch.cat(
+            [
+                residual_distribution.entropy(get_sum=False),
+                gating_distribution.entropy(get_sum=False),
+            ],
+            dim=1
         )
 
         return value, action_log_probs, distribution_entropy, rnn_hidden_states

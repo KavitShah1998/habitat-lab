@@ -84,17 +84,21 @@ class CustomNormal(torch.distributions.normal.Normal):
     ) -> Tensor:
         return super().rsample(sample_shape)
 
-    def log_probs(self, actions):
-        return super().log_prob(actions).sum(-1).unsqueeze(-1)
+    def log_probs(self, actions, get_sum=True):
+        lp = super().log_prob(actions)
+        if get_sum:
+            lp = lp.sum(1, keepdims=True)  # noqa
+        return lp
 
     def mode(self):
         return self.mean
 
-    def entropy(self, dont_sum=False):
+    def entropy(self, get_sum=True):
         ent = 0.5 + 0.5 * math.log(2 * math.pi) + torch.log(self.scale)
-        if not dont_sum:
+        if get_sum:
             ent = ent.sum(1)  # noqa
         return ent
+
 
 class GaussianNet(nn.Module):
     def __init__(
