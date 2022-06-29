@@ -43,15 +43,17 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.obs_expert_actions = config.RL.POLICY.get(
             "obs_teacher_actions", False
         )
+        self.finetune_experts = config.RL.POLICY.finetune_experts
 
         # Determines if we use visual observations or features from experts
         observation_space_copy = Dict(observation_space.spaces.copy())
         if self.blind:
-            vis_keys = [
-                k for k in observation_space.spaces.keys() if "depth" in k
-            ]
-            for k in vis_keys:
-                observation_space.spaces.pop(k)
+            if not self.finetune_experts:
+                vis_keys = [
+                    k for k in observation_space.spaces.keys() if "depth" in k
+                ]
+                for k in vis_keys:
+                    observation_space.spaces.pop(k)
             # Add visual features to the observation space
             observation_space.spaces[VISUAL_FEATURES_UUID] = Box(
                 -np.inf, np.inf, (hidden_size * 2,)
@@ -152,6 +154,9 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.place_action = torch.zeros(
             num_envs, ARM_ACTIONS, device=self.device
         )
+        self.nav_log_probs = torch.zeros(num_envs, 1, device=self.device)
+        self.gaze_log_probs = torch.zeros(num_envs, 1, device=self.device)
+        self.place_log_probs = torch.zeros(num_envs, 1, device=self.device)
         self._obs_batching_cache = ObservationBatchingCache()
         self.active_envs = list(range(num_envs))
         self.deterministic_nav = False
@@ -216,7 +221,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 (
                     _,
                     self.nav_action,
-                    _,
+                    self.nav_log_probs,
                     self.nav_rnn_hx,
                 ) = self.expert_nav_policy.act(
                     batch,
@@ -226,12 +231,14 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     deterministic=self.deterministic_nav,
                     actions_only=True,
                 )
+            else:
+                self.nav_log_probs = torch.zeros_like(self.nav_log_probs)
 
             if num_envs > 1 or gates[0, 1] > 0:
                 (
                     _,
                     self.gaze_action,
-                    _,
+                    self.gaze_log_probs,
                     self.gaze_rnn_hx,
                 ) = self.expert_gaze_policy.act(
                     batch,
@@ -241,14 +248,15 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     deterministic=self.deterministic_gaze,
                     actions_only=True,
                 )
+            else:
+                self.gaze_log_probs = torch.zeros_like(self.gaze_log_probs)
             if self.expert_place_policy is not None and (
                 num_envs > 1 or gates[0, 2] > 0
             ):
-                self.expert_place_policy.net.speak = True
                 (
                     _,
                     self.place_action,
-                    _,
+                    self.place_log_probs,
                     self.place_rnn_hx,
                 ) = self.expert_place_policy.act(
                     batch,
@@ -258,6 +266,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     deterministic=self.deterministic_place,
                     actions_only=True,
                 )
+            else:
+                self.place_log_probs = torch.zeros_like(self.place_log_probs)
 
         self.nav_prev_actions.copy_(self.nav_action)
         self.gaze_prev_actions.copy_(self.gaze_action)
@@ -318,12 +328,15 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                     ] = self.place_action[index_env].numpy()
 
             if self.blind:
-                # Remove visual observations
-                vis_keys = [
-                    k for k in observations[index_env].keys() if "depth" in k
-                ]
-                for k in vis_keys:
-                    observations[index_env].pop(k)
+                if not self.finetune_experts:
+                    # Remove visual observations
+                    vis_keys = [
+                        k
+                        for k in observations[index_env].keys()
+                        if "depth" in k
+                    ]
+                    for k in vis_keys:
+                        observations[index_env].pop(k)
 
                 # Stitch and add visual features from the experts
                 visual_features = [
@@ -437,6 +450,8 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         experts. The mask order is Nav, Gaze, Place. The action order is Arm,
         Base.
         """
+        if self.finetune_experts:
+            rnn_hidden_states, _ = rnn_hidden_states.chunk(2, dim=2)
         value, action, action_log_probs, rnn_hidden_states = super().act(
             observations,
             rnn_hidden_states,
@@ -460,7 +475,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             self.get_action_masks(expert_masks)
 
         if self.residuals_on_inactive:
-            # Residuals for NOT-selected (inactive) experts are ZERO-ED here
+            # Residuals for NOT-selected (inactive) experts are ZERO'D here
             residual_arm_actions = residual_arm_actions * (
                 1.0 - self.arm_action_mask
             )
@@ -481,6 +496,25 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
                 torch.zeros_like(action_log_probs),
                 action_log_probs,
             )
+        if self.finetune_experts:
+            # Store the hidden states of all experts
+            experts_hx = [self.nav_rnn_hx, self.gaze_rnn_hx, self.place_rnn_hx]
+            if self.num_masks == 2:
+                experts_hx.pop(-1)
+            rnn_hidden_states = torch.cat(
+                [rnn_hidden_states, *experts_hx], dim=2
+            )
+            # Combine expert log_probs (already zero'd)
+            action_log_probs = torch.cat(
+                [
+                    action_log_probs,
+                    self.nav_log_probs,
+                    self.gaze_log_probs,
+                    self.place_log_probs,
+                ],
+                dim=1,
+            )
+
         if action_log_probs.shape[1] > 1:
             action_log_probs = action_log_probs.sum(1, keepdims=True)
 
@@ -609,6 +643,13 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
     def evaluate_actions(
         self, observations, rnn_hidden_states, prev_actions, masks, action
     ):
+        if self.finetune_experts:
+            # Assume that all experts and the gater/corrective have same
+            # GRU hidden dimensions
+            rnn_hidden_states, hx_e = rnn_hidden_states.chunk(2, dim=2)
+            experts_hx = hx_e.chunk(3, dim=2)
+        else:
+            experts_hx = None
         (
             value,
             action_log_probs,
@@ -617,6 +658,53 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         ) = super().evaluate_actions(
             observations, rnn_hidden_states, prev_actions, masks, action
         )
+        if experts_hx is not None:
+            experts = [
+                self.expert_nav_policy,
+                self.expert_gaze_policy,
+                self.expert_place_policy,
+            ]
+            experts_action = [
+                action[:, ARM_ACTIONS : ARM_ACTIONS + BASE_ACTIONS],
+                action[:, :ARM_ACTIONS],
+                action[:, :ARM_ACTIONS],
+            ]
+            gates = torch.chunk(
+                action[:, -self.num_masks :], self.num_masks, dim=1
+            )
+            if self.num_masks == 3:
+                # Deactivate inferior grasp expert
+                gates[1][gates[1] < gates[2]] = -1
+                gates[2][gates[2] <= gates[1]] = -1
+
+            experts_probs, experts_entropy = [], []
+            for g, expert, expert_action, expert_hx in zip(
+                gates, experts, experts_action, experts_hx
+            ):
+                _, expert_probs, expert_entropy, _ = expert.evaluate_actions(
+                    observations,
+                    expert_hx,
+                    None,  # PointNavBaselineNet doesn't use previous action.
+                    masks,
+                    expert_action,
+                )
+                # Zero-out entropies and actions for deactivated experts
+                experts_probs.append(
+                    torch.where(  # noqa
+                        g > 0, expert_probs, torch.zeros_like(expert_probs)
+                    )
+                )
+                experts_entropy.append(
+                    torch.where( # noqa
+                        g > 0, expert_entropy, torch.zeros_like(expert_entropy)
+                    )
+                )
+            action_log_probs = torch.cat(
+                [action_log_probs, *experts_probs], dim=1
+            )
+            distribution_entropy = torch.cat(
+                [distribution_entropy, *experts_entropy], dim=1
+            )
         if self.selective_corrective:
             # Action would only exactly equal 0.0 for parts of corrective
             # actions that were silenced in the act() method. By zeroing the

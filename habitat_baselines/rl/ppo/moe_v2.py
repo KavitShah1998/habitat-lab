@@ -48,7 +48,7 @@ class MoePolicy(Policy, nn.Module):
         init=True,
     ):
         nn.Module.__init__(self)
-        hidden_size = 512
+        self.hidden_size = hidden_size = 512
         self.use_rnn = use_rnn
         self.num_gates = num_gates
         self.num_actions = num_actions
@@ -191,9 +191,10 @@ class MoePolicy(Policy, nn.Module):
 
     def get_value(self, observations, rnn_hidden_states, prev_actions, masks):
         if self.use_rnn:
+            rnn_hidden_states = rnn_hidden_states[..., :self.hidden_size * 3]
             return self.critic(
                 self.obs_to_tensor(observations),
-                rnn_hidden_states[:, :, 512 * 2 :],
+                rnn_hidden_states[..., 512 * 2 :],
                 masks,
             )[0]
         return self.critic(self.obs_to_tensor(observations))

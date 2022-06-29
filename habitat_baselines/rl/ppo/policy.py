@@ -84,15 +84,15 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
             action = distribution.mode()
         else:
             action = distribution.sample()
-        if actions_only:
-            return None, action, None, rnn_hidden_states
-
-        value = self.critic(features)
 
         action_log_probs = distribution.log_probs(action)
-
         # Save for use in behavioral cloning the mean and std
         self.distribution = distribution
+
+        if actions_only:
+            return None, action, action_log_probs, rnn_hidden_states
+
+        value = self.critic(features)
 
         return value, action, action_log_probs, rnn_hidden_states
 
@@ -325,7 +325,11 @@ class PointNavBaselineNet(Net):
     def forward(self, observations, rnn_hidden_states, prev_actions, masks):
         x = []
         if not self.is_blind:
-            if self.vis_feats_queued:
+            if (
+                self.vis_feats_queued
+                and self.pred_visual_features.shape[0]
+                == masks.shape[0]
+            ):
                 x.append(self.pred_visual_features)
             else:
                 x.append(self.get_vis_feats(observations))
@@ -334,7 +338,7 @@ class PointNavBaselineNet(Net):
         # Non-visual observations
         if len(self.fuse_states) > 0:
             non_vis_obs = [observations[k] for k in self.fuse_states]
-            x.append(self.goal_encoder(torch.cat(non_vis_obs, dim=-1)))
+            x.append(self.goal_encoder(torch.cat(non_vis_obs, dim=1)))
 
         # Final RNN layer
         x_out = torch.cat(x, dim=1)

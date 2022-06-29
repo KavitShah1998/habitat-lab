@@ -407,10 +407,11 @@ class PPOTrainer(BaseRLTrainer):
             num_rnn_layers = 0
         if self.config.RL.POLICY.get("use_rnn", False):
             rnn_hidden_size = 512 * 3
+            if self.config.RL.POLICY.finetune_experts:
+                rnn_hidden_size *= 2
             num_rnn_layers = 1
         else:
             rnn_hidden_size = ppo_cfg.hidden_size
-
         self.rollouts = RolloutStorage(
             ppo_cfg.num_steps,
             self.envs.num_envs,
