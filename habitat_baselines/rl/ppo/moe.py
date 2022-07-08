@@ -507,10 +507,10 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             # Combine expert log_probs (already zero'd)
             action_log_probs = torch.cat(
                 [
-                    action_log_probs,
-                    self.nav_log_probs,
-                    self.gaze_log_probs,
-                    self.place_log_probs,
+                    action_log_probs.to(self.device),
+                    self.nav_log_probs.to(self.device),
+                    self.gaze_log_probs.to(self.device),
+                    self.place_log_probs.to(self.device),
                 ],
                 dim=1,
             )
