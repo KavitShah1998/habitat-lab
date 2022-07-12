@@ -74,7 +74,6 @@ class MoePolicy(Policy, nn.Module):
             )
 
         # Gating actor
-
         if self.use_rnn:
             self.gating_actor = RNNActorCritic(
                 nn.Sequential(
