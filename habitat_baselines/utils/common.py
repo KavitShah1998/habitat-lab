@@ -73,8 +73,6 @@ class CategoricalNet(nn.Module):
 
     def forward(self, x: Tensor) -> CustomFixedCategorical:
         x = self.linear(x)
-        z = torch.distributions.Categorical(logits=x)
-
         return CustomFixedCategorical(logits=x)
 
 
