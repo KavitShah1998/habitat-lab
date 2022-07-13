@@ -11,7 +11,11 @@ from habitat_baselines.rl.models.rnn_state_encoder import (
     build_rnn_state_encoder,
 )
 from habitat_baselines.rl.ppo.policy import Policy
-from habitat_baselines.utils.common import GaussianNet, initialized_linear
+from habitat_baselines.utils.common import (
+    CategoricalNet,
+    GaussianNet,
+    initialized_linear,
+)
 
 
 def construct_mlp_base(input_size, hidden_size, num_layers=3, init=True):
@@ -46,6 +50,7 @@ class MoePolicy(Policy, nn.Module):
         use_rnn=False,
         blackout_gater=False,
         init=True,
+        softmax_gating=False,
     ):
         nn.Module.__init__(self)
         self.hidden_size = hidden_size = 512
@@ -55,6 +60,7 @@ class MoePolicy(Policy, nn.Module):
         self.fuse_states = fuse_states
         self.blackout_gater = blackout_gater
         self.blackout_obs = None
+        self.softmax_gating = softmax_gating
         spaces = observation_space.spaces
         input_size = sum([spaces[n].shape[0] for n in self.fuse_states])
 
@@ -74,18 +80,23 @@ class MoePolicy(Policy, nn.Module):
             )
 
         # Gating actor
+        if softmax_gating:
+            act_dist_cls = CategoricalNet
+            num_gates += 1  # allow for no experts to be activated as well
+        else:
+            act_dist_cls = GaussianNet
         if self.use_rnn:
             self.gating_actor = RNNActorCritic(
                 nn.Sequential(
                     *construct_mlp_base(input_size, hidden_size, init=init)
                 ),
-                GaussianNet(hidden_size, num_gates, init=init),
+                act_dist_cls(hidden_size, num_gates, init=init),
                 init=init,
             )
         else:
             self.gating_actor = nn.Sequential(
                 *construct_mlp_base(input_size, hidden_size, init=init),
-                GaussianNet(hidden_size, num_gates, init=init),
+                act_dist_cls(hidden_size, num_gates, init=init),
             )
 
         # Critic
@@ -102,6 +113,11 @@ class MoePolicy(Policy, nn.Module):
                 *construct_mlp_base(input_size, hidden_size, init=init),
                 initialized_linear(hidden_size, 1, gain=np.sqrt(2), init=init),
             )
+
+        self.residual_distribution = None
+        self.gating_distribution = None
+        self.residual_actor.num_actions = num_actions
+        self.gating_actor.num_actions = 1 if softmax_gating else num_gates
 
     def obs_to_tensor(self, observations, exclude=()):
         # Convert double to float if found
@@ -171,6 +187,9 @@ class MoePolicy(Policy, nn.Module):
         action_and_log_probs = []
         for d in [residual_distribution, gating_distribution]:
             act = d.mode() if deterministic else d.sample()
+            # Make sure that the action is always saved as float
+            if act.dtype is not torch.float32:
+                act = act.type(torch.float32)
             if actions_only:
                 log_probs = None
             else:
@@ -185,7 +204,6 @@ class MoePolicy(Policy, nn.Module):
             action_log_probs = None
         else:
             action_log_probs = torch.cat([res_log_p, gate_log_p], dim=1)
-
         return value, action, action_log_probs, rnn_hidden_states
 
     def get_value(self, observations, rnn_hidden_states, prev_actions, masks):
@@ -251,7 +269,7 @@ class MoePolicy(Policy, nn.Module):
             hx_1 = rnn_hidden_states[:, :, :512]
             hx_2 = rnn_hidden_states[:, :, 512 : 512 * 2]
             hx_3 = rnn_hidden_states[:, :, 512 * 2 :]
-            residual_distribution, hx_1 = self.residual_actor(
+            self.residual_distribution, hx_1 = self.residual_actor(
                 observations_tensor, hx_1, masks
             )
 
@@ -259,7 +277,7 @@ class MoePolicy(Policy, nn.Module):
                 gating_in = self.blackout_obs
             else:
                 gating_in = observations_tensor
-            gating_distribution, hx_2 = self.gating_actor(
+            self.gating_distribution, hx_2 = self.gating_actor(
                 gating_in, hx_2, masks
             )
             if actions_only:
@@ -269,19 +287,19 @@ class MoePolicy(Policy, nn.Module):
             rnn_hidden_states = torch.cat([hx_1, hx_2, hx_3], dim=2)
 
             return (
-                residual_distribution,
-                gating_distribution,
+                self.residual_distribution,
+                self.gating_distribution,
                 value,
                 rnn_hidden_states,
             )
         else:
-            residual_distribution = self.residual_actor(observations_tensor)
-            gating_distribution = self.gating_actor(observations_tensor)
+            self.residual_distribution = self.residual_actor(observations_tensor)
+            self.gating_distribution = self.gating_actor(observations_tensor)
             if actions_only:
                 value = None
             else:
                 value = self.critic(observations_tensor)
-            return residual_distribution, gating_distribution, value
+            return self.residual_distribution, self.gating_distribution, value
 
     def forward(self, *x):
         raise NotImplementedError

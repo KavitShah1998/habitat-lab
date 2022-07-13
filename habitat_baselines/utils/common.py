@@ -48,14 +48,13 @@ class CustomFixedCategorical(torch.distributions.Categorical):  # type: ignore
     ) -> Tensor:
         return super().sample()
 
-    def log_probs(self, actions: Tensor) -> Tensor:
-        return (
-            super()
-            .log_prob(actions.squeeze(-1))
-            .view(actions.size(0), -1)
-            .sum(-1)
-            .unsqueeze(-1)
-        )
+    def log_probs(self, actions: Tensor, get_sum=True) -> Tensor:
+        if actions.dtype is torch.float32:
+            actions = actions.type(torch.long)
+        lp = super().log_prob(actions.squeeze(-1)).view(actions.size(0), -1)
+        if get_sum:
+            lp = lp.sum(1, keepdims=True)  # noqa
+        return lp
 
     def mode(self):
         return self.probs.argmax(dim=-1, keepdim=True)

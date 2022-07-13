@@ -79,6 +79,8 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             use_rnn=config.RL.POLICY.get("use_rnn", False),
             blackout_gater=config.RL.POLICY.get("blackout_gater", False),
             init=config.RL.POLICY.init,
+            *args,
+            **kwargs,
         )
 
         # For RolloutStorage in ppo_trainer.py
@@ -695,7 +697,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
                     )
                 )
                 experts_entropy.append(
-                    torch.where( # noqa
+                    torch.where(  # noqa
                         g > 0, expert_entropy, torch.zeros_like(expert_entropy)
                     )
                 )
@@ -717,6 +719,32 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
             )
 
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
+
+
+@baseline_registry.register_policy
+class NavGazeMixtureOfExpertsMaskSoftmax(NavGazeMixtureOfExpertsMask):
+    def __init__(self, *args, **kwargs):
+        super().__init__(softmax_gating=True, *args, **kwargs)
+        self.num_masks = 1
+
+    @classmethod
+    def from_config(
+        cls, config: Config, observation_space: Dict, action_space
+    ):
+        actual_action_space = Box(-1.0, 1.0, (action_space.shape[0] + 1,))
+
+        return cls(
+            observation_space=observation_space,
+            action_space=actual_action_space,
+            config=config,
+        )
+
+    def get_action_masks(self, expert_masks):
+        final_expert_masks = []
+        for i in range(self.num_experts):
+            final_expert_masks.append(expert_masks == i)
+        final_expert_masks = torch.cat(final_expert_masks, dim=1)
+        super().get_action_masks(final_expert_masks.type(torch.float16))
 
 
 @baseline_registry.register_policy

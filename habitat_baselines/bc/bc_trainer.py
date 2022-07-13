@@ -202,10 +202,12 @@ class BehavioralCloningMoe(BaseRLTrainer):
 
         return actions
 
-    def stepify_actions(self, actions, **kwargs):
+    def stepify_actions(self, actions, use_residuals=False, **kwargs):
         # Convert student actions into a dictionary for stepping envs
         step_actions = [
-            self.moe.action_to_dict(act, index_env, **kwargs)
+            self.moe.action_to_dict(
+                act, index_env, use_residuals=use_residuals, **kwargs
+            )
             for index_env, act in enumerate(actions.detach().cpu().unbind(0))
         ]
 
@@ -476,6 +478,47 @@ class BehavioralCloningMoeMaskSingle(BehavioralCloningMoeMask):
         teacher_mask_labels = torch.tensor(
             teacher_mask_labels,
             dtype=torch.float32,
+            device=self.device,
+        ).reshape(self.envs.num_envs, 1)
+
+        return teacher_mask_labels
+
+
+@baseline_registry.register_trainer(name="bc_mask_softmax")
+class BehavioralCloningMoeMaskSoftmax(BehavioralCloningMoeMask):
+    def get_action_and_loss(self, batch):
+        teacher_labels = self.get_teacher_labels(batch)
+        if self.teacher_forcing:
+            raise NotImplementedError("Teacher forcing not supported!")
+        actions = self.get_student_actions(batch)
+
+        # Calculate loss. We only care about the mask outputs for behavioral
+        # cloning, not the residuals.
+        student_logits = self.moe.gating_distribution.logits
+        action_loss = F.cross_entropy(student_logits, teacher_labels.squeeze(1))
+        step_actions = self.stepify_actions(actions, use_residuals=False)
+
+        # Not applicable for MoeMask; just say -1
+        self.action_mse_deq.append(-1)
+
+        return step_actions, action_loss
+
+    def get_teacher_labels(self, batch, label_type="action"):
+        teacher_mask_labels = []
+        uuid2bin = {
+            EXPERT_NAV_UUID: 0.0,
+            EXPERT_GAZE_UUID: 1.0,
+            EXPERT_PLACE_UUID: 2.0,
+            EXPERT_NULL_UUID: 3.0,  # Iffy
+        }
+        # Iterates over each environment
+        for idx, correct_skill_idx in enumerate(batch["correct_skill_idx"]):
+            correct_skill = EXPERT_UUIDS[int(correct_skill_idx)]
+            teacher_mask_labels.append(uuid2bin[correct_skill])
+
+        teacher_mask_labels = torch.tensor(
+            teacher_mask_labels,
+            dtype=torch.long,
             device=self.device,
         ).reshape(self.envs.num_envs, 1)
 

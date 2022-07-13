@@ -113,7 +113,9 @@ def get_blank_params(config, policy, device, num_envs=1):
         num_actions = policy.action_distribution.mu.out_features
     else:
         # Assume this is a MoE v2
-        num_actions = policy.num_actions + policy.num_gates
+        num_actions = (
+            policy.residual_actor.num_actions + policy.gating_actor.num_actions
+        )
     prev_actions = torch.zeros(
         num_envs,
         num_actions,
