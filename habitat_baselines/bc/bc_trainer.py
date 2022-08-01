@@ -276,6 +276,9 @@ class BehavioralCloningMoe(BaseRLTrainer):
             setup_policy=policy,
         )
 
+    def get_state_dict(self):
+        return self.moe.state_dict()
+
     def train(self):
         # HACK: Memory error when envs are loaded before policy
         tmp_config = self.config.clone()
@@ -392,7 +395,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
                 if batch_num % self.batches_per_save == 0:
                     # Save checkpoint
                     checkpoint = {
-                        "state_dict": self.moe.state_dict(),
+                        "state_dict": self.get_state_dict(),
                         "config": self.config,
                         "iteration": iteration,
                         "batch": batch,
@@ -495,7 +498,9 @@ class BehavioralCloningMoeMaskSoftmax(BehavioralCloningMoeMask):
         # Calculate loss. We only care about the mask outputs for behavioral
         # cloning, not the residuals.
         student_logits = self.moe.gating_distribution.logits
-        action_loss = F.cross_entropy(student_logits, teacher_labels.squeeze(1))
+        action_loss = F.cross_entropy(
+            student_logits, teacher_labels.squeeze(1)
+        )
         step_actions = self.stepify_actions(actions, use_residuals=False)
 
         # Not applicable for MoeMask; just say -1
