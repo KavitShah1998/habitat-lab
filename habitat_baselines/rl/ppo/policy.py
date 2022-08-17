@@ -103,7 +103,13 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
         return self.critic(features)
 
     def evaluate_actions(
-        self, observations, rnn_hidden_states, prev_actions, masks, action
+        self,
+        observations,
+        rnn_hidden_states,
+        prev_actions,
+        masks,
+        action,
+        get_sum=True,
     ):
         features, rnn_hidden_states = self.net(
             observations, rnn_hidden_states, prev_actions, masks
@@ -111,7 +117,7 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
         distribution = self.action_distribution(features)
         value = self.critic(features)
 
-        action_log_probs = distribution.log_probs(action)
+        action_log_probs = distribution.log_probs(action, get_sum=get_sum)
         distribution_entropy = distribution.entropy()
 
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
@@ -327,8 +333,7 @@ class PointNavBaselineNet(Net):
         if not self.is_blind:
             if (
                 self.vis_feats_queued
-                and self.pred_visual_features.shape[0]
-                == masks.shape[0]
+                and self.pred_visual_features.shape[0] == masks.shape[0]
             ):
                 x.append(self.pred_visual_features)
             else:

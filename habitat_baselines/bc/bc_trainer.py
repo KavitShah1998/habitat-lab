@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from habitat_baselines.rl.ppo.relmogen import RelmogenPolicy
 from torch.utils.tensorboard import SummaryWriter
 
 from habitat import logger
@@ -66,6 +67,7 @@ class BehavioralCloningMoe(BaseRLTrainer):
         self.load_weights = config.RL.DDPPO.pretrained
         self.teacher_forcing = config.TEACHER_FORCING
         self.num_envs = config.NUM_PROCESSES
+        self.observation_space = None
 
         if not os.path.isdir(self.checkpoint_folder):
             os.makedirs(self.checkpoint_folder)
@@ -74,14 +76,14 @@ class BehavioralCloningMoe(BaseRLTrainer):
         # Envs MUST be instantiated first
         observation_space = self.envs.observation_spaces[0]
         self.obs_transforms = get_active_obs_transforms(self.config)
-        observation_space = apply_obs_transforms_obs_space(
+        self.observation_space = apply_obs_transforms_obs_space(
             observation_space, self.obs_transforms
         )
 
         # MoE and its experts are loaded here
         policy_cls = baseline_registry.get_policy(self.policy_name)
         self.moe = policy_cls.from_config(
-            self.config, observation_space, self.envs.action_spaces[0]
+            self.config, self.observation_space, self.envs.action_spaces[0]
         )
 
         # Load pretrained weights if provided
@@ -426,6 +428,7 @@ class BehavioralCloningMoeMask(BehavioralCloningMoe):
         action_loss = F.mse_loss(mask_actions, teacher_mask_labels)
 
         step_actions = self.stepify_actions(actions, use_residuals=False)
+        # print(step_actions)
 
         # Not applicable for MoeMask; just say -1
         self.action_mse_deq.append(-1)
@@ -528,3 +531,147 @@ class BehavioralCloningMoeMaskSoftmax(BehavioralCloningMoeMask):
         ).reshape(self.envs.num_envs, 1)
 
         return teacher_mask_labels
+
+
+@baseline_registry.register_trainer(name="bc_relmogen")
+class BehavioralCloningRelmogen(BehavioralCloningMoeMask):
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+        self.visual_obs = {}
+        self.teacher_forcing = True
+
+    def setup_teacher_student(self, del_envs=False):
+        super().setup_teacher_student(del_envs=del_envs)
+        action_space = None  # Relmogen action space is hard-coded
+        self.rmg = RelmogenPolicy.from_config(
+            self.config, self.observation_space, action_space
+        )
+        self.rmg.to(self.device)
+        # Instantiate hidden states, masks, and prev actions
+        self.rmg_hx = torch.zeros(
+            self.num_envs,
+            1,
+            self.config.RL.PPO.hidden_size,
+            device=self.device,
+        )
+        num_actions = 7 if self.rmg.use_gating else 6
+        self.rmg_prev_act = torch.zeros(
+            self.num_envs, num_actions, device=self.device
+        )
+
+    def get_state_dict(self):
+        return self.rmg.state_dict()
+
+    def get_model_params(self):
+        return self.rmg.parameters()
+
+    def transform_observations(self, observations, masks):
+        batch = batch_obs(observations, device=self.device)
+        viz_keys = [
+            "arm_depth",
+            "arm_depth_bbox",
+            "spot_left_depth",
+            "spot_right_depth",
+        ]
+        self.visual_obs = {k: v for k, v in batch.items() if k in viz_keys}
+        t_observations = super().transform_observations(observations, masks)
+
+        return t_observations
+
+    def get_action_and_loss(self, batch):
+        """
+        For this trainer, the teacher labels are not going to be extracted
+        from the environment itself, but rather will have to be the result of
+        passing the observations through the correct expert. We still need the
+        data from the env about which expert to use to generate actions though.
+        """
+        with torch.no_grad():
+            teacher_mask_labels = self.get_teacher_labels(batch)
+            # Use teacher masks to generate label using MoE policy
+            self.moe.get_action_masks(teacher_mask_labels)
+            self.get_student_actions(batch)  # needed to update the MoE gates
+
+        # MoE actions are used as labels against RMG actions
+        # Get mu and std from each expert
+        exp_acts = {
+            "nav_dist": self.moe.expert_nav_policy.distribution,
+            "gaze_dist": self.moe.expert_gaze_policy.distribution,
+            "place_dist": self.moe.expert_place_policy.distribution,
+            "nav_mask": self.moe.nav_action_mask[:, :1],
+            "gaze_mask": self.moe.gaze_action_mask[:, :1],
+            "place_mask": self.moe.place_action_mask[:, :1],
+        }
+
+        # Detach gradients from actions that are not activated
+        for k in [i for i in exp_acts.keys() if "mask" not in i]:
+            v = exp_acts[k]
+            exp_acts[k.replace("dist", "mu")] = torch.where(
+                torch.gt(exp_acts[k.replace("dist", "mask")], 0.0).repeat(
+                    1, v.mean.shape[1]
+                ),
+                v.mean,
+                v.mean.detach(),
+            )
+            exp_acts[k.replace("dist", "std")] = torch.where(
+                torch.gt(exp_acts[k.replace("dist", "mask")], 0.0).repeat(
+                    1, v.scale.shape[1]
+                ),
+                v.scale,
+                v.scale.detach(),
+            )
+
+        # Merge manipulation expert actions based on activation
+        for key in ["mu", "std"]:
+            exp_acts[f"arm_{key}"] = torch.where(
+                torch.gt(exp_acts["gaze_mask"], 0.0),
+                exp_acts[f"gaze_{key}"],
+                exp_acts[f"place_{key}"],
+            )
+
+        mu = torch.cat([exp_acts["arm_mu"], exp_acts["nav_mu"]], dim=1)
+        std = torch.cat([exp_acts["arm_std"], exp_acts["nav_std"]], dim=1)
+
+        # Get actions from RMG policy
+        batch.update(self.visual_obs)
+        batch.pop("visual_features")
+        _, actions_pred, _, self.rmg_hx = self.rmg.act(
+            batch,
+            self.rmg_hx.detach(),
+            self.rmg_prev_act.detach(),
+            self.masks.detach(),
+            deterministic=False,
+        )
+        mu_pred = self.rmg.distribution.mean
+        std_pred = self.rmg.distribution.scale
+
+        if self.rmg.use_gating:
+            gates = torch.where(
+                torch.eq(self.moe.arm_action_mask[:, 0], 1.0),
+                torch.ones_like(self.moe.arm_action_mask[:, 0]),
+                torch.ones_like(self.moe.arm_action_mask[:, 0]) * -1,
+            ).reshape(self.num_envs, 1)
+            mu = torch.cat([mu, gates], dim=1)
+            std = torch.cat(
+                [std, torch.zeros_like(std[:, -1]).unsqueeze(1)], dim=1
+            )
+            # Detach the std for the gating action
+            std_pred[:, -1] = std_pred[:, -1].detach()
+
+        action_loss = F.mse_loss(mu_pred, mu.detach()) + F.mse_loss(
+            std_pred, std.detach()
+        )
+        step_actions = self.stepify_actions(actions_pred)
+
+        # Not applicable for MoeMask; just say -1
+        self.action_mse_deq.append(-1)
+
+        return step_actions, action_loss
+
+    def stepify_actions(self, actions, **kwargs):
+        # Convert student actions into a dictionary for stepping envs
+        step_actions = [
+            self.rmg.action_to_dict(act)
+            for act in actions.detach().cpu().unbind(0)
+        ]
+
+        return step_actions
