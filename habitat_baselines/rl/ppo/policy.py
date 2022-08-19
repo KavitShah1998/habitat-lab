@@ -118,7 +118,7 @@ class Policy(nn.Module, metaclass=abc.ABCMeta):
         value = self.critic(features)
 
         action_log_probs = distribution.log_probs(action, get_sum=get_sum)
-        distribution_entropy = distribution.entropy()
+        distribution_entropy = distribution.entropy(get_sum=get_sum)
 
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
 
@@ -329,6 +329,10 @@ class PointNavBaselineNet(Net):
         return self.pred_visual_features
 
     def forward(self, observations, rnn_hidden_states, prev_actions, masks):
+        # Convert double to float if found
+        for k, v in observations.items():
+            if v.dtype is torch.float64:
+                observations[k] = v.type(torch.float32)
         x = []
         if not self.is_blind:
             if (

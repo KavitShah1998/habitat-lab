@@ -116,9 +116,12 @@ class PPO(nn.Module):
                     batch["masks"],
                     batch["actions"],
                 )
-                if dist_entropy.shape[1] != 1:
+                if dist_entropy.ndim > 1 and dist_entropy.shape[1] != 1:
                     dist_entropy = dist_entropy.sum(1, keepdims=True)
-                if action_log_probs.shape[1] != 1:
+                if (
+                    action_log_probs.ndim > 1
+                    and action_log_probs.shape[1] != 1
+                ):
                     action_log_probs = action_log_probs.sum(1, keepdims=True)
 
                 ratio = torch.exp(action_log_probs - batch["action_log_probs"])

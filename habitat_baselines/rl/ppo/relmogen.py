@@ -110,15 +110,15 @@ class RelmogenPolicy(PointNavBaselinePolicy):
             get_sum=get_sum,
         )
         if self.use_gating:
-            gates = action[:, -1]
+            gates = action[:, -1].unsqueeze(1)
 
-            # We always want the log_prob of the gate action
             num_envs = gates.shape[0]
             gates_repeated = gates.repeat(1, ARM_ACTIONS + BASE_ACTIONS)
+            # We ALWAYS want the log_prob of the gate action (hence .ones())
             gates_repeated = torch.cat(
                 [
                     gates_repeated,
-                    torch.ones([num_envs, 1], device=gates.device),
+                    torch.ones(num_envs, 1, device=gates.device),
                 ],
                 dim=1,
             )
@@ -128,5 +128,5 @@ class RelmogenPolicy(PointNavBaselinePolicy):
                 action_log_probs,
                 torch.zeros_like(action_log_probs),
             )
-
+        assert action_log_probs.ndim > 1 and distribution_entropy.ndim > 1
         return value, action_log_probs, distribution_entropy, rnn_hidden_states
