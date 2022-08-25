@@ -221,7 +221,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         with torch.no_grad():
             if (
                 num_envs > 1
-                or (gates.shape[1] > 0 and gates[0, 0] > 0)
+                or (gates.shape[1] > 1 and gates[0, 0] > 0)
                 or gates.shape[1] == 1
             ):
                 (
@@ -242,7 +242,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
 
             if (
                 num_envs > 1
-                or (gates.shape[1] > 0 and gates[0, 1] > 0)
+                or (gates.shape[1] > 1 and gates[0, 1] > 0)
                 or gates.shape[1] == 1
             ):
                 (
@@ -262,7 +262,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
                 self.gaze_log_probs = torch.zeros_like(self.gaze_log_probs)
             if self.expert_place_policy is not None and (
                 num_envs > 1
-                or (gates.shape[1] > 0 and gates[0, 2] > 0)
+                or (gates.shape[1] > 1 and gates[0, 2] > 0)
                 or gates.shape[1] == 1
             ):
                 (
@@ -423,13 +423,22 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
     """
 
     def __init__(
-        self, observation_space, action_space, config, *args, **kwargs
+        self,
+        observation_space,
+        action_space,
+        config,
+        override_act_space=True,
+        *args,
+        **kwargs
     ):
         """Add actions for masking experts"""
         num_experts = 2 if config.RL.POLICY.place_checkpoint_path == "" else 3
-        actual_action_space = Box(
-            -1.0, 1.0, (action_space.shape[0] + num_experts,)
-        )
+        if override_act_space:
+            actual_action_space = Box(
+                -1.0, 1.0, (action_space.shape[0] + num_experts,)
+            )
+        else:
+            actual_action_space = action_space
         super().__init__(
             observation_space, actual_action_space, config, *args, **kwargs
         )
@@ -734,7 +743,9 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
 @baseline_registry.register_policy
 class NavGazeMixtureOfExpertsMaskSoftmax(NavGazeMixtureOfExpertsMask):
     def __init__(self, *args, **kwargs):
-        super().__init__(softmax_gating=True, *args, **kwargs)
+        super().__init__(
+            softmax_gating=True, override_act_space=False, *args, **kwargs
+        )
         self.num_masks = 1
 
     @classmethod
