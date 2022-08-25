@@ -219,7 +219,11 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             gates = torch.ones(num_envs, 3)
 
         with torch.no_grad():
-            if num_envs > 1 or gates[0, 0] > 0:
+            if (
+                num_envs > 1
+                or (gates.shape[1] > 0 and gates[0, 0] > 0)
+                or gates.shape[1] == 1
+            ):
                 (
                     _,
                     self.nav_action,
@@ -236,7 +240,11 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             else:
                 self.nav_log_probs = torch.zeros_like(self.nav_log_probs)
 
-            if num_envs > 1 or gates[0, 1] > 0:
+            if (
+                num_envs > 1
+                or (gates.shape[1] > 0 and gates[0, 1] > 0)
+                or gates.shape[1] == 1
+            ):
                 (
                     _,
                     self.gaze_action,
@@ -253,7 +261,9 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
             else:
                 self.gaze_log_probs = torch.zeros_like(self.gaze_log_probs)
             if self.expert_place_policy is not None and (
-                num_envs > 1 or gates[0, 2] > 0
+                num_envs > 1
+                or (gates.shape[1] > 0 and gates[0, 2] > 0)
+                or gates.shape[1] == 1
             ):
                 (
                     _,
