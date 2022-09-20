@@ -1192,7 +1192,12 @@ class Equirect2CubeMap(ProjectionTransformer):
 
 
 import cv2
-from torchvision.transforms import Compose, RandomErasing, RandomResizedCrop
+from torchvision.transforms import (
+    Compose,
+    RandomErasing,
+    RandomResizedCrop,
+    Resize,
+)
 
 
 @baseline_registry.register_obs_transformer(name="CUTOUT")
@@ -1514,6 +1519,62 @@ class SpotMask(ObservationTransformer):
                     if sensor in observations
                 }
             )
+        return observations
+
+
+@baseline_registry.register_obs_transformer(name="RESIZER")
+class Resizer(ObservationTransformer):
+    """Black out rectangular regions selected randomly"""
+
+    def __init__(
+        self,
+        trans_keys: Tuple[str] = (
+            "spot_left_depth",
+            "spot_right_depth",
+        ),
+    ):
+        """Args:
+        noise_percent: what percent of randomly selected pixel turn black
+        trans_keys: list of keys it will try to transform from obs
+        """
+        super().__init__()
+        self.trans_keys = trans_keys
+        self.resize = Resize((212, 120))
+
+    def _transform_obs(self, obs: torch.Tensor) -> torch.Tensor:
+        if tuple(obs.shape[1:2]) == (212, 120):
+            return obs
+        obs = obs.permute(0, 3, 1, 2)  # NHWC -> NCHW
+        obs = self.resize(obs)
+        obs = obs.permute(0, 2, 3, 1)  # NCHW -> NHWC
+        return obs
+
+    @classmethod
+    def from_config(cls, config: Config):
+        return cls()
+
+    def transform_observation_space(self, observation_space: spaces.Dict):
+        observation_space["spot_left_depth"] = spaces.Box(
+            low=0.0, high=1.0, shape=(212, 120, 1), dtype=np.float32
+        )
+        observation_space["spot_right_depth"] = spaces.Box(
+            low=0.0, high=1.0, shape=(212, 120, 1), dtype=np.float32
+        )
+        return observation_space
+
+    @torch.no_grad()
+    def forward(
+        self, observations: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        observations["raw_spot_left_depth"] = observations["spot_left_depth"]
+        observations["raw_spot_right_depth"] = observations["spot_right_depth"]
+        observations.update(
+            {
+                sensor: self._transform_obs(observations[sensor])
+                for sensor in self.trans_keys
+                if sensor in observations
+            }
+        )
         return observations
 
 
