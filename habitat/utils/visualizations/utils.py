@@ -151,6 +151,7 @@ def draw_collision(view: np.ndarray, alpha: float = 0.4) -> np.ndarray:
     view[mask] = (alpha * np.array([255, 0, 0]) + (1.0 - alpha) * view)[mask]
     return view
 
+
 def draw_human_collision(view: np.ndarray, alpha: float = 0.4) -> np.ndarray:
     r"""Draw translucent red strips on the border of input view to indicate
     a collision has taken place.
@@ -167,16 +168,13 @@ def draw_human_collision(view: np.ndarray, alpha: float = 0.4) -> np.ndarray:
 
     font_scale = 2
     thickness = 2
-    text = 'HUMAN HIT'
+    text = "HUMAN HIT"
     label_width, label_height = cv2.getTextSize(
-        text,
-        cv2.FONT_HERSHEY_SIMPLEX,
-        font_scale,
-        thickness
+        text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness
     )[0]
 
-    h,w = view.shape[:2]
-    origin = (w-label_width)//2, (h+label_height)//2
+    h, w = view.shape[:2]
+    origin = (w - label_width) // 2, (h + label_height) // 2
 
     cv2.putText(
         view,
@@ -184,9 +182,9 @@ def draw_human_collision(view: np.ndarray, alpha: float = 0.4) -> np.ndarray:
         origin,
         cv2.FONT_HERSHEY_SIMPLEX,
         font_scale,
-        (0,0,0),
+        (0, 0, 0),
         thickness,
-        cv2.LINE_AA
+        cv2.LINE_AA,
     )
 
     return view
@@ -214,14 +212,17 @@ def observations_to_image(observation: Dict, info: Dict) -> np.ndarray:
 
     # draw depth map if observation has depth info
     for k in ["depth", "spot_right_depth", "spot_left_depth"]:
-        if k in observation:
-            depth_map = observation[k].squeeze() * 255.0
-            if not isinstance(depth_map, np.ndarray):
-                depth_map = depth_map.cpu().numpy()
+        if "raw_" + k in observation:
+            k = "raw_" + k
+        elif k not in observation:
+            continue
+        depth_map = observation[k].squeeze() * 255.0
+        if not isinstance(depth_map, np.ndarray):
+            depth_map = depth_map.cpu().numpy()
 
-            depth_map = depth_map.astype(np.uint8)
-            depth_map = np.stack([depth_map for _ in range(3)], axis=2)
-            egocentric_view_l.append(depth_map)
+        depth_map = depth_map.astype(np.uint8)
+        depth_map = np.stack([depth_map for _ in range(3)], axis=2)
+        egocentric_view_l.append(depth_map)
 
     # add image goal if observation has image_goal info
     if "imagegoal" in observation:
