@@ -174,6 +174,27 @@ class PointNavBaselinePolicy(Policy):
             init=config.RL.POLICY.get("init", True),
         )
 
+    def act(
+        self,
+        observations,
+        rnn_hidden_states,
+        prev_actions,
+        masks,
+        deterministic=False,
+        actions_only=False,
+    ):
+        filtered_observations = {
+            k: v for k, v in observations.items() if not k.startswith("hq_")
+        }
+        return super().act(
+            filtered_observations,
+            rnn_hidden_states,
+            prev_actions,
+            masks,
+            deterministic,
+            actions_only,
+        )
+
 
 class Net(nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
