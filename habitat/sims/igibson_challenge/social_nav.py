@@ -1,10 +1,4 @@
-# import collections
 from typing import Union, Optional, List
-
-# from habitat.core.dataset import Dataset
-# from habitat.core.embodied_task import Action, EmbodiedTask, Measure
-# from habitat.core.simulator import ActionSpaceConfiguration, Sensor, Simulator
-# from habitat.core.utils import Singleton
 
 from habitat.core.simulator import (
     AgentState,
@@ -60,7 +54,6 @@ class iGibsonSocialNav(HabitatSim):
 
     def reset_people(self):
         agent_position = self.get_agent_state().position
-        obj_templates_mgr = self.get_object_template_manager()
 
         # Check if humans have been erased (sim was reset)
         if not self.get_existing_object_ids():
@@ -81,20 +74,26 @@ class iGibsonSocialNav(HabitatSim):
                 goal = np.array(self.sample_navigable_point())
                 distance = self.geodesic_distance(start, goal)
                 valid_distance = distance > min_path_dist
+
+                # Make sure paths don't span multiple floors
                 valid_level = (
                     abs(start[1] - agent_position[1]) < max_level
                     and abs(goal[1] - agent_position[1]) < max_level
                 )
+
                 sp = habitat_sim.nav.ShortestPath()
                 sp.requested_start = start
                 sp.requested_end = goal
                 found_path = self.pathfinder.find_path(sp)
+
+                # Don't spawn people too close to the robot
                 valid_start = (
                     np.sqrt(
                         (start[0] - agent_x) ** 2 + (start[2] - agent_z) ** 2
                     )
                     > 0.5
                 )
+
                 valid_walk = (
                     valid_distance
                     and valid_level
@@ -177,12 +176,12 @@ class iGibsonSocialNav(HabitatSim):
 class ShortestPathFollowerv2:
     def __init__(
         self,
-        sim,
-        object_id,
-        waypoints,
-        lin_speed,
-        ang_speed,
-        time_step,
+        sim: iGibsonSocialNav,
+        object_id,  # int for old Habitat, something else for new Habitat...
+        waypoints: List[np.ndarray],
+        lin_speed: float,
+        ang_speed: float,
+        time_step: float,
     ):
         self._sim = sim
         self.object_id = object_id
@@ -193,7 +192,11 @@ class ShortestPathFollowerv2:
         self.vel_control.lin_vel_is_local = True
         self.vel_control.ang_vel_is_local = True
 
+        # Given waypoints from 0 to N, we want to cyclically go from 0 to N and
+        # then from N to 1 (and on and on). So we add the reverse of the
+        # waypoints to the end of the list, without the first or last element.
         self.waypoints = list(waypoints) + list(waypoints)[::-1][1:-1]
+
         self.next_waypoint_idx = 1
         self.done_turning = False
         self.current_position = waypoints[0]
@@ -205,27 +208,39 @@ class ShortestPathFollowerv2:
         self.max_linear_vel = np.random.rand() * (0.1) + self.lin_speed - 0.1
 
     def step(self):
+        """
+        Step the shortest path follower. Objects will be moved in a point-turn
+        manner (i.e. they won't move forward until they have turned to face
+        the next waypoint).
+        :return:
+        """
+        # If waypoint_idx exceeds max length, wrap around
         waypoint_idx = self.next_waypoint_idx % len(self.waypoints)
-        waypoint = np.array(self.waypoints[waypoint_idx])
 
+        waypoint = np.array(self.waypoints[waypoint_idx])
         translation = self._sim.get_translation(self.object_id)
-        mn_quat = self._sim.get_rotation(self.object_id)
+        magnum_quaternion = self._sim.get_rotation(self.object_id)
 
         # Face the next waypoint if we aren't already facing it
         if not self.done_turning:
             # Get current global heading
-            heading = np.quaternion(mn_quat.scalar, *mn_quat.vector)
-            heading = -quat_to_rad(heading) + np.pi / 2
+            numpy_quaternion = np.quaternion(
+                magnum_quaternion.scalar, *magnum_quaternion.vector
+            )
+            heading = -quat_to_rad(numpy_quaternion) + np.pi / 2
 
             # Get heading necessary to face next waypoint
+            # In habitat, syntax is (x, z, y), for some reason...
             theta = math.atan2(
                 waypoint[2] - translation[2], waypoint[0] - translation[0]
             )
-
             theta_diff = get_heading_error(heading, theta)
             direction = 1 if theta_diff < 0 else -1
 
-            # If next turn would normally overshoot, turn just the right amount
+            # If turning at max speed for the entire time step would overshoot,
+            # only turn at the speed necessary to face the waypoint by the end
+            # of the time step. Added a buffer of 20% percent to avoid
+            # very small pivots that waste time.
             if self.ang_speed * self.time_step * 1.2 >= abs(theta_diff):
                 angular_velocity = -theta_diff / self.time_step
                 self.done_turning = True
@@ -237,16 +252,21 @@ class ShortestPathFollowerv2:
                 [0.0, angular_velocity, 0.0]
             )
 
-        # Move towards the next waypoint
+        # If we ARE facing the next waypoint, then move forward
         else:
             # If next move would normally overshoot, move just the right amount
             distance = np.sqrt(
                 (translation[0] - waypoint[0]) ** 2
                 + (translation[2] - waypoint[2]) ** 2
             )
+
+            # If moving forward at max speed for the entire time step would
+            # overshoot, only move at the speed necessary to reach the waypoint
+            # by the end of the time step. Added a buffer of 20% percent to
+            # avoid very small moves that waste time.
             if self.max_linear_vel * self.time_step * 1.2 >= distance:
                 linear_velocity = distance / self.time_step
-                self.done_turning = False
+                self.done_turning = False  # start turning to next waypoint
                 self.next_waypoint_idx += 1
             else:
                 linear_velocity = self.max_linear_vel
@@ -256,7 +276,9 @@ class ShortestPathFollowerv2:
                 [0.0, 0.0, linear_velocity]
             )
 
-        rigid_state = habitat_sim.bindings.RigidState(mn_quat, translation)
+        rigid_state = habitat_sim.bindings.RigidState(
+            magnum_quaternion, translation
+        )
         rigid_state = self.vel_control.integrate_transform(
             self.time_step, rigid_state
         )
