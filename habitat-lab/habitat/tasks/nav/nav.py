@@ -604,12 +604,22 @@ class SPL(Measure):
 
         self._previous_position = current_position
 
-        self._metric = ep_success * (
-            self._start_end_episode_distance
-            / max(
+        if max(
                 self._start_end_episode_distance, self._agent_episode_distance
+            ) == 0:
+            print("Warning: start_end_episode_distance is 0. Here are values:")
+            print("start_end_episode_distance: ", self._start_end_episode_distance)
+            print("agent_episode_distance: ", self._agent_episode_distance)
+            
+        try:
+            self._metric = ep_success * (
+                self._start_end_episode_distance
+                / max(
+                    self._start_end_episode_distance, self._agent_episode_distance
+                )
             )
-        )
+        except ZeroDivisionError:
+            self._metric = 0.0
 
 
 @registry.register_measure
@@ -1000,6 +1010,11 @@ class DistanceToGoal(Measure):
                 logger.error(
                     f"Non valid distance_to parameter was provided: {self._config.distance_to}"
                 )
+
+            # If distance_to_target is infinite, set it to 1.0 and end the task
+            if np.isinf(distance_to_target):
+                distance_to_target = 1.0
+                kwargs["task"].is_stop_called = True
 
             self._previous_position = (
                 current_position[0],
