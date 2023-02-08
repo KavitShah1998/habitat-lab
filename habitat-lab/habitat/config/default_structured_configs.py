@@ -1533,12 +1533,6 @@ cs.store(
     node=RobotCollisionsMeasurementConfig,
 )
 cs.store(
-    package="habitat.task.measurements.collisions",
-    group="habitat/task/measurements",
-    name="collisions",
-    node=CollisionsMeasurementConfig,
-)
-cs.store(
     package="habitat.task.measurements.object_to_goal_distance",
     group="habitat/task/measurements",
     name="object_to_goal_distance",
