@@ -227,19 +227,17 @@ def observations_to_image(observation: Dict, info: Dict) -> np.ndarray:
                 obs_k = np.concatenate([obs_k for _ in range(3)], axis=2)
             render_obs_images.append(obs_k)
 
+    visual_sensors_exist = len(render_obs_images) > 0
     assert (
-        len(render_obs_images) > 0
-    ), "Expected at least one visual sensor enabled."
+        "top_down_map.map" in info or visual_sensors_exist
+    ), "No images in observation or map in info!"
 
-    shapes_are_equal = len(set(x.shape for x in render_obs_images)) == 1
-    if not shapes_are_equal:
-        render_frame = tile_images(render_obs_images)
-    else:
-        render_frame = np.concatenate(render_obs_images, axis=1)
-
-    # draw collision
-    if info.get("collisions.is_collision", False):
-        render_frame = draw_collision(render_frame)
+    if visual_sensors_exist:
+        shapes_are_equal = len(set(x.shape for x in render_obs_images)) == 1
+        if not shapes_are_equal:
+            render_frame = tile_images(render_obs_images)
+        else:
+            render_frame = np.concatenate(render_obs_images, axis=1)
 
     if "top_down_map.map" in info:
         map_info = {
@@ -247,10 +245,23 @@ def observations_to_image(observation: Dict, info: Dict) -> np.ndarray:
             for k, v in info.items()
             if k.startswith("top_down_map.")
         }
+        height = render_frame.shape[0] if visual_sensors_exist else 500
         top_down_map = maps.colorize_draw_agent_and_fit_to_height(
-            map_info, render_frame.shape[0]
+            map_info, height
         )
+
+    # draw collision
+    if info.get("collisions.is_collision", False):
+        if visual_sensors_exist:
+            render_frame = draw_collision(render_frame)
+        else:
+            top_down_map = draw_collision(top_down_map)
+
+    if visual_sensors_exist and "top_down_map.map" in info:
         render_frame = np.concatenate((render_frame, top_down_map), axis=1)
+    elif "top_down_map.map" in info:
+        render_frame = top_down_map
+
     return render_frame
 
 
