@@ -43,7 +43,7 @@ class NavGazeMixtureOfExpertsRes(MoePolicy):
         self.obs_expert_actions = config.RL.POLICY.get(
             "obs_teacher_actions", False
         )
-        self.finetune_experts = config.RL.POLICY.finetune_experts
+        self.finetune_experts = config.RL.POLICY.get("finetune_experts", False)
 
         # Determines if we use visual observations or features from experts
         observation_space_copy = Dict(observation_space.spaces.copy())
@@ -445,7 +445,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
         self.residuals_on_inactive = config.RL.POLICY.residuals_on_inactive
         self.use_residuals = config.RL.POLICY.use_residuals
         self.dont_digitize = config.RL.POLICY.dont_digitize
-        self.selective_corrective = config.RL.POLICY.selective_corrective
+        self.selective_corrective = config.RL.POLICY.get("selective_corrective", False)
         self.nav_action_mask = None
         self.gaze_action_mask = None
         self.place_action_mask = None
@@ -536,7 +536,7 @@ class NavGazeMixtureOfExpertsMask(NavGazeMixtureOfExpertsRes):
                 dim=1,
             )
 
-        if action_log_probs.shape[1] > 1:
+        if action_log_probs is not None and action_log_probs.shape[1] > 1:
             action_log_probs = action_log_probs.sum(1, keepdims=True)
 
         return value, action, action_log_probs, rnn_hidden_states
