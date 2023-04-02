@@ -44,7 +44,7 @@ try:
     from habitat.sims.habitat_simulator.habitat_simulator import HabitatSim
     from habitat_sim import RigidState
     from habitat_sim.physics import VelocityControl
-except ImportError:
+except:
     pass
 
 try:

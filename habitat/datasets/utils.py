@@ -22,7 +22,7 @@ from habitat.utils.geometry_utils import quaternion_to_list
 try:
     from habitat.sims.habitat_simulator.habitat_simulator import HabitatSim
     from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
-except ImportError:
+except:
     pass
 
 SENTENCE_SPLIT_REGEX = re.compile(r"([^\w-]+)")

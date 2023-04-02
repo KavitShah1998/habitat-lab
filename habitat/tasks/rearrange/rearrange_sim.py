@@ -8,15 +8,21 @@ import os.path as osp
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import magnum as mn
+try:
+    import magnum as mn
+except ModuleNotFoundError:
+    pass
 import numpy as np
-import numpy.typing as npt
+#import numpy.typing as npt
 
-import habitat_sim
+try:
+    import habitat_sim
+    from habitat.sims.habitat_simulator.habitat_simulator import HabitatSim
+except ModuleNotFoundError:
+    pass
 from habitat.config.default import Config
 from habitat.core.registry import registry
 from habitat.core.simulator import Observations
-from habitat.sims.habitat_simulator.habitat_simulator import HabitatSim
 from habitat.tasks.rearrange.marker_info import MarkerInfo
 from habitat.tasks.rearrange.rearrange_grasp_manager import (
     RearrangeGraspManager,

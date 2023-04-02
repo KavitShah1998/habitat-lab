@@ -24,7 +24,10 @@ from gym.spaces.box import Box
 if TYPE_CHECKING:
     from torch import Tensor
 
-import habitat_sim
+try:
+    import habitat_sim
+except ModuleNotFoundError:
+    pass
 from habitat.core.dataset import Episode
 from habitat.core.registry import registry
 from habitat.core.simulator import (

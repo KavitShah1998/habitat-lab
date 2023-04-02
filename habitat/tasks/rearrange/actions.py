@@ -6,11 +6,19 @@
 
 from typing import Optional
 
-import magnum as mn
+try:
+    import magnum as mn
+except ModuleNotFoundError:
+    pass
+
 import numpy as np
 from gym import spaces
 
-import habitat_sim
+try:
+    import habitat_sim
+except ModuleNotFoundError:
+    pass
+
 from habitat.core.embodied_task import SimulatorTaskAction
 from habitat.core.registry import registry
 from habitat.sims.habitat_simulator.actions import HabitatSimActions

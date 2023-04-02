@@ -25,4 +25,4 @@ def make_task(id_task, **kwargs):
 _try_register_eqa_task()
 _try_register_nav_task()
 _try_register_vln_task()
-_try_register_rearrange_task()
+# _try_register_rearrange_task()

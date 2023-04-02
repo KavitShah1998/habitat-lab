@@ -11,11 +11,14 @@ from gym import spaces
 
 from habitat.core.embodied_task import SimulatorTaskAction
 from habitat.core.registry import registry
-from habitat.tasks.rearrange.rearrange_sim import RearrangeSim
-from habitat.tasks.rearrange.utils import (
-    coll_link_name_matches,
-    coll_name_matches,
-)
+try:
+    from habitat.tasks.rearrange.rearrange_sim import RearrangeSim
+    from habitat.tasks.rearrange.utils import (
+        coll_link_name_matches,
+        coll_name_matches,
+    )
+except:
+    pass
 
 
 class GripSimulatorTaskAction(SimulatorTaskAction):

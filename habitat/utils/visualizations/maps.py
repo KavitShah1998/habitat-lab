@@ -16,7 +16,7 @@ from habitat.utils.visualizations import utils
 
 try:
     from habitat.sims.habitat_simulator.habitat_simulator import HabitatSim
-except ImportError:
+except:
     pass
 
 cv2 = try_cv2_import()

@@ -4,7 +4,10 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import magnum as mn
+try:
+    import magnum as mn
+except ModuleNotFoundError:
+    pass
 import numpy as np
 
 

@@ -12,13 +12,19 @@ import time
 from typing import List, Optional, Tuple
 
 import attr
-import magnum as mn
+try:
+    import magnum as mn
+except:
+    pass
 import numpy as np
 import quaternion
 
-import habitat_sim
+try:
+    import habitat_sim
+    from habitat_sim.physics import MotionType
+except:
+    pass
 from habitat.core.logging import HabitatLogger
-from habitat_sim.physics import MotionType
 
 rearrange_logger = HabitatLogger(
     name="rearrange_task",
