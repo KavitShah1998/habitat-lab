@@ -23,6 +23,7 @@ from habitat import VectorEnv, logger
 from habitat.config import read_write
 from habitat.config.default import get_agent_config
 from habitat.tasks.nav.nav import NON_SCALAR_METRICS
+from habitat.tasks.nav.object_nav_task import ObjectGoalSensor
 from habitat.tasks.rearrange.rearrange_sensors import GfxReplayMeasure
 from habitat.tasks.rearrange.utils import write_gfx_replay
 from habitat.utils import profiling_wrapper
@@ -68,6 +69,9 @@ from habitat_baselines.utils.common import (
     inference_mode,
     is_continuous_action_space,
 )
+
+from ovon.measurements.nav import OVONObjectGoalID
+from ovon.utils.utils import load_pickle
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
@@ -1045,6 +1049,8 @@ class PPOTrainer(BaseRLTrainer):
 
         pbar = tqdm.tqdm(total=number_of_eval_episodes * evals_per_ep)
         self.actor_critic.eval()
+        num_successes = 0
+        num_total = 0
         while (
             len(stats_episodes) < (number_of_eval_episodes * evals_per_ep)
             and self.envs.num_envs > 0
@@ -1121,6 +1127,7 @@ class PPOTrainer(BaseRLTrainer):
                 ):
                     envs_to_pause.append(i)
 
+                target_obj = None
                 if len(self.config.habitat_baselines.eval.video_option) > 0:
                     # TODO move normalization / channel changing out of the policy and undo it here
                     frame = observations_to_image(
@@ -1132,9 +1139,29 @@ class PPOTrainer(BaseRLTrainer):
                         frame = observations_to_image(
                             {k: v[i] * 0.0 for k, v in batch.items()}, infos[i]
                         )
-                    frame = overlay_frame(
-                        frame, self._extract_scalars_from_info(infos[i])
-                    )
+                    overlay_dict = self._extract_scalars_from_info(infos[i])
+                    # We would like to write the object name on the frame too
+                    # if we are doing objectnav
+                    if ObjectGoalSensor.cls_uuid in observations[i]:
+                        obj_id = observations[i][ObjectGoalSensor.cls_uuid][0]
+                        id_to_name = [
+                            "chair",
+                            "bed",
+                            "potted_plant",
+                            "toilet",
+                            "tv",
+                            "couch",
+                        ]
+                    elif OVONObjectGoalID.cls_uuid in infos[i]:
+                        obj_id = infos[i][OVONObjectGoalID.cls_uuid]
+                        if not hasattr(self, "objectgoal_vocab"):
+                            cache = load_pickle(
+                                "data/clip_embeddings/ovon_stretch_final_cache.pkl"
+                            )
+                            self.objectgoal_vocab = sorted(list(cache.keys()))
+                        id_to_name = self.objectgoal_vocab
+                    overlay_dict["target"] = target_obj = id_to_name[obj_id]
+                    frame = overlay_frame(frame, overlay_dict)
                     rgb_frames[i].append(frame)
 
                 # episode ended
@@ -1155,17 +1182,33 @@ class PPOTrainer(BaseRLTrainer):
                     # use scene_id + episode_id as unique id for storing stats
                     stats_episodes[(k, ep_eval_count[k])] = episode_stats
 
+                    if episode_stats["success"] == 1:
+                        num_successes += 1
+                    num_total += 1
+                    print(
+                        f"Success rate: {num_successes/num_total*100:.2f}% "
+                        f"({num_successes} out of {num_total})"
+                    )
+
                     if (
                         len(self.config.habitat_baselines.eval.video_option)
                         > 0
                     ):
+                        video_metrics = self._extract_scalars_from_info(
+                            infos[i]
+                        )
+                        if target_obj is not None:
+                            video_metrics[
+                                OVONObjectGoalID.cls_uuid
+                            ] = target_obj
+
                         generate_video(
                             video_option=self.config.habitat_baselines.eval.video_option,
                             video_dir=self.config.habitat_baselines.video_dir,
                             images=rgb_frames[i],
                             episode_id=current_episodes_info[i].episode_id,
                             checkpoint_idx=checkpoint_index,
-                            metrics=self._extract_scalars_from_info(infos[i]),
+                            metrics=video_metrics,
                             fps=self.config.habitat_baselines.video_fps,
                             tb_writer=writer,
                             keys_to_include_in_name=self.config.habitat_baselines.eval_keys_to_include_in_name,

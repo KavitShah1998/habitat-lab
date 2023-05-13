@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from omegaconf import DictConfig
 
 
-MIN_SCENES_PER_ENV = 16
+MIN_SCENES_PER_ENV = 1
 
 T = TypeVar("T")
 
