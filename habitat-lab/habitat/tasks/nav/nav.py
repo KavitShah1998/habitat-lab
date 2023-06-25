@@ -610,7 +610,7 @@ class SPL(Measure):
             print("Warning: start_end_episode_distance is 0. Here are values:")
             print("start_end_episode_distance: ", self._start_end_episode_distance)
             print("agent_episode_distance: ", self._agent_episode_distance)
-            
+
         try:
             self._metric = ep_success * (
                 self._start_end_episode_distance
@@ -832,27 +832,30 @@ class TopDownMap(Measure):
     def _draw_shortest_path(
         self, episode: NavigationEpisode, agent_position: AgentState
     ):
-        if self._config.draw_shortest_path:
-            _shortest_path_points = (
-                self._sim.get_straight_shortest_path_points(
-                    agent_position, episode.goals[0].position
+        try:
+            if self._config.draw_shortest_path:
+                _shortest_path_points = (
+                    self._sim.get_straight_shortest_path_points(
+                        agent_position, episode.goals[0].position
+                    )
                 )
-            )
-            self._shortest_path_points = [
-                maps.to_grid(
-                    p[2],
-                    p[0],
-                    (self._top_down_map.shape[0], self._top_down_map.shape[1]),
-                    sim=self._sim,
+                self._shortest_path_points = [
+                    maps.to_grid(
+                        p[2],
+                        p[0],
+                        (self._top_down_map.shape[0], self._top_down_map.shape[1]),
+                        sim=self._sim,
+                    )
+                    for p in _shortest_path_points
+                ]
+                maps.draw_path(
+                    self._top_down_map,
+                    self._shortest_path_points,
+                    maps.MAP_SHORTEST_PATH_COLOR,
+                    self.line_thickness,
                 )
-                for p in _shortest_path_points
-            ]
-            maps.draw_path(
-                self._top_down_map,
-                self._shortest_path_points,
-                maps.MAP_SHORTEST_PATH_COLOR,
-                self.line_thickness,
-            )
+        except:
+            pass
 
     def _is_on_same_floor(
         self, height, ref_floor_height=None, ceiling_height=2.0
