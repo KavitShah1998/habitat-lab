@@ -168,12 +168,25 @@ class PPOTrainer(BaseRLTrainer):
             )
 
         if self.config.habitat_baselines.rl.ddppo.pretrained:
-            self.actor_critic.load_state_dict(
-                {  # type: ignore
-                    k[len("actor_critic.") :]: v
-                    for k, v in pretrained_state["state_dict"].items()
-                }
-            )
+            try:
+                self.actor_critic.load_state_dict(
+                    {  # type: ignore
+                        k[len("actor_critic.") :]: v
+                        for k, v in pretrained_state["state_dict"].items()
+                    }
+                )
+            except:
+                print("Fail to load pretrained weights. Trying again.")
+                merged_dict = self.actor_critic.state_dict()
+                merged_dict.update(
+                    {  # type: ignore
+                        k[len("actor_critic."):]: v
+                        for k, v in pretrained_state["state_dict"].items()
+                        if k[len("actor_critic."):] in merged_dict
+                    }
+                )
+                self.actor_critic.load_state_dict(merged_dict)
+                print("Successfully loaded pretrained weights.")
         elif self.config.habitat_baselines.rl.ddppo.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
             self.actor_critic.net.visual_encoder.load_state_dict(
@@ -985,7 +998,15 @@ class PPOTrainer(BaseRLTrainer):
         self._setup_actor_critic_agent(ppo_cfg)
 
         if self.agent.actor_critic.should_load_agent_state:
-            self.agent.load_state_dict(ckpt_dict["state_dict"])
+            if "actor_critic.critic.fc.weight" not in ckpt_dict["state_dict"]:
+                print(
+                    "Critic weights not found in checkpoint. Using default weights"
+                )
+                merged_dict = self.agent.state_dict()
+                merged_dict.update(ckpt_dict["state_dict"])
+                self.agent.load_state_dict(merged_dict)
+            else:
+                self.agent.load_state_dict(ckpt_dict["state_dict"])
         self.actor_critic = self.agent.actor_critic
 
         observations = self.envs.reset()
@@ -1051,6 +1072,7 @@ class PPOTrainer(BaseRLTrainer):
         self.actor_critic.eval()
         num_successes = 0
         num_total = 0
+        json_dict = {}
         while (
             len(stats_episodes) < (number_of_eval_episodes * evals_per_ep)
             and self.envs.num_envs > 0
@@ -1128,6 +1150,32 @@ class PPOTrainer(BaseRLTrainer):
                     envs_to_pause.append(i)
 
                 target_obj = None
+                # We would like to write the object name on the frame too
+                # if we are doing objectnav
+                if ObjectGoalSensor.cls_uuid in observations[i]:
+                    obj_id = observations[i][ObjectGoalSensor.cls_uuid][0]
+                    id_to_name = [
+                        "chair",
+                        "bed",
+                        "potted_plant",
+                        "toilet",
+                        "tv",
+                        "couch",
+                    ]
+                elif OVONObjectGoalID.cls_uuid in infos[i]:
+                    obj_id = infos[i][OVONObjectGoalID.cls_uuid]
+                    if not hasattr(self, "objectgoal_vocab"):
+                        cache = load_pickle(
+                            "data/clip_embeddings/ovon_stretch_final_cache.pkl"
+                        )
+                        self.objectgoal_vocab = sorted(list(cache.keys()))
+                    id_to_name = self.objectgoal_vocab
+                else:
+                    id_to_name = None
+                if id_to_name is not None:
+                    target_obj = id_to_name[
+                        obj_id
+                    ]
                 if len(self.config.habitat_baselines.eval.video_option) > 0:
                     # TODO move normalization / channel changing out of the policy and undo it here
                     frame = observations_to_image(
@@ -1140,27 +1188,8 @@ class PPOTrainer(BaseRLTrainer):
                             {k: v[i] * 0.0 for k, v in batch.items()}, infos[i]
                         )
                     overlay_dict = self._extract_scalars_from_info(infos[i])
-                    # We would like to write the object name on the frame too
-                    # if we are doing objectnav
-                    if ObjectGoalSensor.cls_uuid in observations[i]:
-                        obj_id = observations[i][ObjectGoalSensor.cls_uuid][0]
-                        id_to_name = [
-                            "chair",
-                            "bed",
-                            "potted_plant",
-                            "toilet",
-                            "tv",
-                            "couch",
-                        ]
-                    elif OVONObjectGoalID.cls_uuid in infos[i]:
-                        obj_id = infos[i][OVONObjectGoalID.cls_uuid]
-                        if not hasattr(self, "objectgoal_vocab"):
-                            cache = load_pickle(
-                                "data/clip_embeddings/ovon_stretch_final_cache.pkl"
-                            )
-                            self.objectgoal_vocab = sorted(list(cache.keys()))
-                        id_to_name = self.objectgoal_vocab
-                    overlay_dict["target"] = target_obj = id_to_name[obj_id]
+                    assert target_obj is not None
+                    overlay_dict["target"] = target_obj
                     frame = overlay_frame(frame, overlay_dict)
                     rgb_frames[i].append(frame)
 
@@ -1189,6 +1218,24 @@ class PPOTrainer(BaseRLTrainer):
                         f"Success rate: {num_successes/num_total*100:.2f}% "
                         f"({num_successes} out of {num_total})"
                     )
+                    # Add data about the episode to json dict
+                    if os.environ.get("OVON_EPISODES_JSON", "") != "":
+                        assert target_obj is not None
+                        ep_json_dict = {
+                            "scene_id": current_episodes_info[i].scene_id,
+                            "episode_id": current_episodes_info[i].episode_id,
+                            "target": target_obj,
+                        }
+                        ep_json_dict.update(
+                            self._extract_scalars_from_info(infos[i])
+                        )
+                        hash_key_str = (
+                            f"{current_episodes_info[i].scene_id}"
+                            f"_{current_episodes_info[i].episode_id}"
+                        )
+                        if hash_key_str in json_dict:
+                            hash_key_str += "_1"
+                        json_dict[hash_key_str] = ep_json_dict
 
                     if (
                         len(self.config.habitat_baselines.eval.video_option)
@@ -1269,5 +1316,12 @@ class PPOTrainer(BaseRLTrainer):
         metrics = {k: v for k, v in aggregated_stats.items() if k != "reward"}
         for k, v in metrics.items():
             writer.add_scalar(f"eval_metrics/{k}", v, step_id)
+
+        if os.environ.get("OVON_EPISODES_JSON", "") != "":
+            import json
+
+            json_file = os.environ["OVON_EPISODES_JSON"]
+            with open(json_file, "w") as f:
+                json.dump(json_dict, f)
 
         self.envs.close()
