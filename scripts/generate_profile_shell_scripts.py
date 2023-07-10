@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 r"""Reference python script for profiling DDPPO PointNav on the FAIR internal
@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     # The Habitat-lab program to be profiled (the command you usually use to
     # invoke it).
-    program_str = "python -u -m habitat_baselines.run --exp-config habitat-baselines/habitat_baselines/config/pointnav/ddppo_pointnav.yaml --run-type train"
+    program_str = "python -u -m habitat_baselines.run --exp-config habitat_baselines/config/pointnav/ddppo_pointnav.yaml --run-type train"
 
     # Path to Nsight Systems nsys command-line tool. This hard-coded path is
     # for the FAIR cluster.
@@ -132,9 +132,9 @@ if __name__ == "__main__":
     if do_capture_step_range:
         program_with_extra_args_str = (
             program_str
-            + " profiling.capture_start_step "
+            + " PROFILING.CAPTURE_START_STEP "
             + str(capture_start_step)
-            + " profiling.num_steps_to_capture "
+            + " PROFILING.NUM_STEPS_TO_CAPTURE "
             + str(num_steps_to_capture)
         )
     else:
@@ -212,8 +212,8 @@ fi
 #SBATCH --open-mode=append
 export GLOG_minloglevel=2
 export MAGNUM_LOG=quiet
-MAIN_ADDR=$(scontrol show hostnames "${SLURM_JOB_NODELIST}" | head -n 1)
-export MAIN_ADDR
+MASTER_ADDR=$(srun --ntasks=1 hostname 2>&1 | tail -n1)
+export MASTER_ADDR
 set -x
 srun bash capture_profile_slurm_task.sh
 """

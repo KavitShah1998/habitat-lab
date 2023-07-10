@@ -13,7 +13,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.13.8
+#       jupytext_version: 1.5.2
 #   kernelspec:
 #     display_name: Python 3
 #     name: python3
@@ -22,7 +22,7 @@
 # %%
 # @title Installation
 
-# !curl -L https://raw.githubusercontent.com/facebookresearch/habitat-sim/main/examples/colab_utils/colab_install.sh | NIGHTLY=true bash -s
+# !curl -L https://raw.githubusercontent.com/facebookresearch/habitat-sim/master/examples/colab_utils/colab_install.sh | NIGHTLY=true bash -s
 # !wget -c http://dl.fbaipublicfiles.com/habitat/mp3d_example.zip && unzip -o mp3d_example.zip -d /content/habitat-sim/data/scene_datasets/mp3d/
 
 # %%
@@ -75,7 +75,7 @@ from habitat_baselines.config.default import get_config as get_baselines_config
 # Change to do something like this maybe: https://stackoverflow.com/a/41432704
 def display_sample(
     rgb_obs, semantic_obs=np.array([]), depth_obs=np.array([])
-):  # noqa: B006
+):  # noqa B006
     from habitat_sim.utils.common import d3_40_colors_rgb
 
     rgb_img = Image.fromarray(rgb_obs, mode="RGB")
@@ -112,26 +112,26 @@ def display_sample(
 # ## Setup PointNav Task
 
 # %%
-# cat "./test/habitat_all_sensors_test.yaml"
+# cat "./configs/test/habitat_all_sensors_test.yaml"
 
 # %%
 if __name__ == "__main__":
     config = habitat.get_config(
-        config_path="./test/habitat_all_sensors_test.yaml"
+        config_paths="./configs/test/habitat_all_sensors_test.yaml"
     )
 
     try:
-        env.close()  # type: ignore[has-type]
+        env.close()
     except NameError:
         pass
     env = habitat.Env(config=config)
 
-    # %%
+# %%
     action = None
     obs = env.reset()
-    valid_actions = ["turn_left", "turn_right", "move_forward", "stop"]
+    valid_actions = ["TURN_LEFT", "TURN_RIGHT", "MOVE_FORWARD", "STOP"]
     interactive_control = False  # @param {type:"boolean"}
-    while action != "stop":
+    while action != "STOP":
         display_sample(obs["rgb"])
         print(
             "distance to goal: {:.2f}".format(
@@ -162,7 +162,7 @@ if __name__ == "__main__":
 
     env.close()
 
-    # %%
+# %%
     print(env.get_metrics())
 
 # %% [markdown]
@@ -170,7 +170,9 @@ if __name__ == "__main__":
 
 # %%
 if __name__ == "__main__":
-    config = get_baselines_config("pointnav/ppo_pointnav_example.yaml")
+    config = get_baselines_config(
+        "./habitat_baselines/config/pointnav/ppo_pointnav_example.yaml"
+    )
 
 # %%
 # set random seeds
@@ -178,19 +180,18 @@ if __name__ == "__main__":
     seed = "42"  # @param {type:"string"}
     steps_in_thousands = "10"  # @param {type:"string"}
 
-    with habitat.config.read_write(config):
-        config.habitat.seed = int(seed)
-        config.habitat_baselines.total_num_steps = int(steps_in_thousands)
-        config.habitat_baselines.log_interval = 1
+    config.defrost()
+    config.TASK_CONFIG.SEED = int(seed)
+    config.TOTAL_NUM_STEPS = int(steps_in_thousands)
+    config.LOG_INTERVAL = 1
+    config.freeze()
 
-    random.seed(config.habitat.seed)
-    np.random.seed(config.habitat.seed)
+    random.seed(config.TASK_CONFIG.SEED)
+    np.random.seed(config.TASK_CONFIG.SEED)
 
 # %%
 if __name__ == "__main__":
-    trainer_init = baseline_registry.get_trainer(
-        config.habitat_baselines.trainer_name
-    )
+    trainer_init = baseline_registry.get_trainer(config.TRAINER_NAME)
     trainer = trainer_init(config)
     trainer.train()
 
@@ -198,7 +199,7 @@ if __name__ == "__main__":
 # @markdown (double click to see the code)
 
 # example tensorboard visualization
-# for more details refer to [link](https://github.com/facebookresearch/habitat-lab/tree/main/habitat-baselines/habitat_baselines#additional-utilities).
+# for more details refer to [link](https://github.com/facebookresearch/habitat-lab/tree/master/habitat_baselines#additional-utilities).
 
 try:
     from IPython import display
@@ -212,31 +213,31 @@ except ImportError:
 #
 # All the concepts link to their definitions:
 #
-# 1. [`habitat.sims.habitat_simulator.HabitatSim`](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/sims/habitat_simulator/habitat_simulator.py#L254)
+# 1. [`habitat.sims.habitat_simulator.HabitatSim`](https://github.com/facebookresearch/habitat-lab/blob/master/habitat/sims/habitat_simulator/habitat_simulator.py#L159)
 # Thin wrapper over `habitat_sim` providing seamless integration with experimentation framework.
 #
 #
-# 2. [`habitat.core.env.Env`](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/core/env.py#L26)
+# 2. [`habitat.core.env.Env`](https://github.com/facebookresearch/habitat-lab/blob/master/habitat/core/env.py)
 # Abstraction for the universe of agent, task and simulator. Agents that you train and evaluate operate inside the environment.
 #
 #
-# 3. [`habitat.core.env.RLEnv`](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/core/env.py#L347)
+# 3. [`habitat.core.env.RLEnv`](https://github.com/facebookresearch/habitat-lab/blob/71d409ab214a7814a9bd9b7e44fd25f57a0443ba/habitat/core/env.py#L278)
 # Extends the `Env` class for reinforcement learning by defining the reward and other required components.
 #
 #
-# 4. [`habitat.core.embodied_task.EmbodiedTask`](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/core/embodied_task.py#L201)
+# 4. [`habitat.core.embodied_task.EmbodiedTask`](https://github.com/facebookresearch/habitat-lab/blob/71d409ab214a7814a9bd9b7e44fd25f57a0443ba/habitat/core/embodied_task.py#L242)
 # Defines the task that the agent needs to solve. This class holds the definition of observation space, action space, measures, simulator usage. Eg: PointNav, ObjectNav.
 #
 #
-# 5. [`habitat.core.dataset.Dataset`](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/core/dataset.py#L107)
+# 5. [`habitat.core.dataset.Dataset`](https://github.com/facebookresearch/habitat-lab/blob/4b6da1c4f8eb287cea43e70c50fe1d615a261198/habitat/core/dataset.py#L63)
 # Wrapper over information required for the dataset of embodied task, contains definition and interaction with an `episode`.
 #
 #
-# 6. [`habitat.core.embodied_task.Measure`](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/core/embodied_task.py#L80)
-# Defines the metrics for embodied task, eg: [SPL](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/tasks/nav/nav.py#L565).
+# 6. [`habitat.core.embodied_task.Measure`](https://github.com/facebookresearch/habitat-lab/blob/master/habitat/core/embodied_task.py#L82)
+# Defines the metrics for embodied task, eg: [SPL](https://github.com/facebookresearch/habitat-lab/blob/d0db1b55be57abbacc5563dca2ca14654c545552/habitat/tasks/nav/nav.py#L533).
 #
 #
-# 7. [`habitat_baselines`](https://github.com/facebookresearch/habitat-lab/tree/main/habitat-baselines/habitat_baselines)
+# 7. [`habitat_baselines`](https://github.com/facebookresearch/habitat-lab/tree/71d409ab214a7814a9bd9b7e44fd25f57a0443ba/habitat_baselines)
 # RL, SLAM, heuristic baseline implementations for the different embodied tasks.
 
 # %% [markdown]
@@ -245,7 +246,7 @@ except ImportError:
 # %%
 if __name__ == "__main__":
     config = habitat.get_config(
-        config_path="./test/habitat_all_sensors_test.yaml"
+        config_paths="./configs/test/habitat_all_sensors_test.yaml"
     )
 
 
@@ -265,8 +266,9 @@ class NewNavigationTask(NavigationTask):
 
 
 if __name__ == "__main__":
-    with habitat.config.read_write(config):
-        config.habitat.task.type = "TestNav-v0"
+    config.defrost()
+    config.TASK.TYPE = "TestNav-v0"
+    config.freeze()
 
     try:
         env.close()
@@ -274,10 +276,10 @@ if __name__ == "__main__":
         pass
     env = habitat.Env(config=config)
 
-    # %%
+# %%
     action = None
     env.reset()
-    valid_actions = ["turn_left", "turn_right", "move_forward", "stop"]
+    valid_actions = ["TURN_LEFT", "TURN_RIGHT", "MOVE_FORWARD", "STOP"]
     interactive_control = False  # @param {type:"boolean"}
     while env.episode_over is not True:
         display_sample(obs["rgb"])
@@ -330,7 +332,7 @@ class AgentPositionSensor(habitat.Sensor):
             dtype=np.float32,
         )
 
-    # This is called whenever reset is called or an action is taken
+    # This is called whenver reset is called or an action is taken
     def get_observation(self, observations, *args, episode, **kwargs):
         return self._sim.get_agent_state().position
 
@@ -338,19 +340,17 @@ class AgentPositionSensor(habitat.Sensor):
 # %%
 if __name__ == "__main__":
     config = habitat.get_config(
-        config_path="./test/habitat_all_sensors_test.yaml"
+        config_paths="./configs/test/habitat_all_sensors_test.yaml"
     )
 
-    from habitat.config.default_structured_configs import LabSensorConfig
-
-    # We use the base sensor config, but you could also define your own
-    # AgentPositionSensorConfig that inherits from LabSensorConfig
-
-    with habitat.config.read_write(config):
-        # Now define the config for the sensor
-        config.habitat.task.lab_sensors[
-            "agent_position_sensor"
-        ] = LabSensorConfig(type="agent_position_sensor")
+    config.defrost()
+    # Now define the config for the sensor
+    config.TASK.AGENT_POSITION_SENSOR = habitat.Config()
+    # Use the custom name
+    config.TASK.AGENT_POSITION_SENSOR.TYPE = "agent_position_sensor"
+    # Add the sensor to the list of sensors in use
+    config.TASK.SENSORS.append("AGENT_POSITION_SENSOR")
+    config.freeze()
 
     try:
         env.close()
@@ -358,16 +358,16 @@ if __name__ == "__main__":
         pass
     env = habitat.Env(config=config)
 
-    # %%
+# %%
     obs = env.reset()
 
-    # %%
+# %%
     obs.keys()
 
-    # %%
+# %%
     print(obs["agent_position"])
 
-    # %%
+# %%
     env.close()
 
 # %% [markdown]
@@ -394,16 +394,16 @@ class ForwardOnlyAgent(habitat.Agent):
 
     def act(self, observations):
         if self.is_goal_reached(observations):
-            action = HabitatSimActions.stop
+            action = HabitatSimActions.STOP
         else:
-            action = HabitatSimActions.move_forward
+            action = HabitatSimActions.MOVE_FORWARD
         return {"action": action}
 
 
 # %% [markdown]
 # ### Other Examples
 #
-# [Create a new action space](https://github.com/facebookresearch/habitat-lab/blob/main/examples/new_actions.py)
+# [Create a new action space](https://github.com/facebookresearch/habitat-lab/blob/master/examples/new_actions.py)
 
 # %%
 # @title Sim2Real with Habitat { display-mode: "form" }
@@ -418,14 +418,14 @@ except ImportError:
     pass
 
 # %% [markdown]
-# Deploy habitat-sim trained models on real robots with the [habitat-pyrobot bridge](https://github.com/facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/sims/pyrobot/pyrobot.py)
+# Deploy habitat-sim trained models on real robots with the [habitat-pyrobot bridge](https://github.com/facebookresearch/habitat-lab/blob/71d409ab214a7814a9bd9b7e44fd25f57a0443ba/habitat/sims/pyrobot/pyrobot.py)
 #
 # ```python
 # # Are we in sim or reality?
 # if args.use_robot: # Use LoCoBot via PyRobot
-#     config.habitat.simulator.type = "PyRobot-Locobot-v0"
+#     config.SIMULATOR.TYPE = "PyRobot-Locobot-v0"
 # else: # Use simulation
-#     config.habitat.simulator.type = "Habitat-Sim-v0"
+#     config.SIMULATOR.TYPE = "Habitat-Sim-v0"
 # ```
 #
 # Paper: [https://arxiv.org/abs/1912.06321](https://arxiv.org/abs/1912.06321)

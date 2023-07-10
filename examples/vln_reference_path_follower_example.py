@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
 import os
 import shutil
-from typing import List
 
 import numpy as np
 
@@ -15,11 +14,6 @@ from examples.shortest_path_follower_example import (
     SimpleRLEnv,
     draw_top_down_map,
 )
-from habitat.config.default_structured_configs import (
-    HeadingSensorConfig,
-    TopDownMapMeasurementConfig,
-)
-from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 from habitat.utils.visualizations.utils import (
     append_text_to_image,
@@ -49,14 +43,13 @@ def reference_path_example(mode):
     Args:
         mode: 'geodesic_path' or 'greedy'
     """
-    config = habitat.get_config(config_path="test/habitat_r2r_vln_test.yaml")
-    with habitat.config.read_write(config):
-        config.habitat.task.measurements.update(
-            {"top_down_map": TopDownMapMeasurementConfig()}
-        )
-        config.habitat.task.lab_sensors.update(
-            {"heading_sensor": HeadingSensorConfig()}
-        )
+    config = habitat.get_config(
+        config_paths="configs/test/habitat_r2r_vln_test.yaml"
+    )
+    config.defrost()
+    config.TASK.MEASUREMENTS.append("TOP_DOWN_MAP")
+    config.TASK.SENSORS.append("HEADING_SENSOR")
+    config.freeze()
     with SimpleRLEnv(config=config) as env:
         follower = ShortestPathFollower(
             env.habitat_env.sim, goal_radius=0.5, return_one_hot=False
@@ -78,7 +71,7 @@ def reference_path_example(mode):
                 shutil.rmtree(dirname)
             os.makedirs(dirname)
 
-            images: List[np.ndarray] = []
+            images = []
             steps = 0
             reference_path = env.habitat_env.current_episode.reference_path + [
                 env.habitat_env.current_episode.goals[0].position
@@ -87,18 +80,15 @@ def reference_path_example(mode):
                 done = False
                 while not done:
                     best_action = follower.get_next_action(point)
-                    if (
-                        best_action is None
-                        or best_action == HabitatSimActions.stop
-                    ):
-                        done = True
-                        continue
+                    if best_action == None:
+                        break
                     observations, reward, done, info = env.step(best_action)
                     save_map(observations, info, images)
                     steps += 1
 
             print(f"Navigated to goal in {steps} steps.")
             images_to_video(images, dirname, str(episode_id))
+            images = []
 
 
 if __name__ == "__main__":

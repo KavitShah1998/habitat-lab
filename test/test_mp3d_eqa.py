@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 import habitat
-from habitat.config.default import get_agent_config, get_config
+from habitat.config.default import get_config
 from habitat.core.embodied_task import Episode
 from habitat.core.logging import logger
 from habitat.datasets import make_dataset
@@ -23,7 +23,7 @@ from habitat.utils.geometry_utils import (
 )
 from habitat.utils.test_utils import sample_non_stop_action
 
-CFG_TEST = "test/habitat_mp3d_eqa_test.yaml"
+CFG_TEST = "configs/test/habitat_mp3d_eqa_test.yaml"
 CLOSE_STEP_THRESHOLD = 0.028
 OLD_STOP_ACTION_ID = 3
 
@@ -32,16 +32,16 @@ OLD_STOP_ACTION_ID = 3
 TEST_EPISODE_SET = [1, 309, 807, 958, 696, 10, 297, 1021, 1307, 1569]
 
 RGB_EPISODE_MEANS = {
-    1: 123.20,
-    10: 120.56,
-    297: 122.69,
-    309: 118.66,
-    696: 116.10,
-    807: 145.77,
-    958: 143.48,
-    1021: 119.10,
-    1307: 102.11,
-    1569: 91.01,
+    1: 123.1576333222566,
+    10: 123.86094605688947,
+    297: 122.69351220853402,
+    309: 118.95794969775298,
+    696: 115.71903709129052,
+    807: 143.7834237211494,
+    958: 141.97871610030387,
+    1021: 119.1051016229882,
+    1307: 102.11408987112925,
+    1569: 91.01973929495183,
 }
 
 EPISODES_LIMIT = 6
@@ -66,11 +66,17 @@ def get_minos_for_sim_eqa_config():
     agent_c = _sim_eqa_c.agents[0]
     agent_c.height = 1.5
     agent_c.radius = 0.1
+    agent_c.mass = 32.0
+    agent_c.linear_acceleration = 10.0
+    agent_c.angular_acceleration = 5 * 3.14
+    agent_c.linear_friction = 1.0
+    agent_c.angular_friction = 1.0
+    agent_c.coefficient_of_restitution = 0.15707963267
 
     return _sim_eqa_c
 
 
-def check_json_serialization(dataset: habitat.Dataset):
+def check_json_serializaiton(dataset: habitat.Dataset):
     start_time = time.time()
     json_str = str(dataset.to_json())
     logger.info(
@@ -87,7 +93,7 @@ def check_json_serialization(dataset: habitat.Dataset):
 
 
 def test_mp3d_eqa_dataset():
-    dataset_config = get_config(CFG_TEST).habitat.dataset
+    dataset_config = get_config(CFG_TEST).DATASET
     if not mp3d_dataset.Matterport3dDatasetV1.check_config_paths_exist(
         dataset_config
     ):
@@ -98,72 +104,69 @@ def test_mp3d_eqa_dataset():
     assert (
         len(dataset.episodes) == mp3d_dataset.EQA_MP3D_V1_VAL_EPISODE_COUNT
     ), "Test split episode number mismatch"
-    check_json_serialization(dataset)
+    check_json_serializaiton(dataset)
 
 
 @pytest.mark.parametrize("split", ["train", "val"])
 def test_dataset_splitting(split):
 
-    dataset_config = get_config(CFG_TEST).habitat.dataset
-    with habitat.config.read_write(dataset_config):
-        dataset_config.split = split
-        if not mp3d_dataset.Matterport3dDatasetV1.check_config_paths_exist(
-            dataset_config
-        ):
-            pytest.skip(
-                "Please download Matterport3D EQA dataset to data folder."
-            )
+    dataset_config = get_config(CFG_TEST).DATASET
+    dataset_config.defrost()
+    dataset_config.SPLIT = split
+    if not mp3d_dataset.Matterport3dDatasetV1.check_config_paths_exist(
+        dataset_config
+    ):
+        pytest.skip("Please download Matterport3D EQA dataset to data folder.")
 
-        scenes = mp3d_dataset.Matterport3dDatasetV1.get_scenes_to_load(
-            config=dataset_config
-        )
-        assert (
-            len(scenes) > 0
-        ), "Expected dataset contains separate episode file per scene."
+    scenes = mp3d_dataset.Matterport3dDatasetV1.get_scenes_to_load(
+        config=dataset_config
+    )
+    assert (
+        len(scenes) > 0
+    ), "Expected dataset contains separate episode file per scene."
 
-        dataset_config.content_scenes = scenes
-        full_dataset = make_dataset(
-            id_dataset=dataset_config.type, config=dataset_config
-        )
-        full_episodes = {
-            (ep.scene_id, ep.episode_id) for ep in full_dataset.episodes
-        }
+    dataset_config.CONTENT_SCENES = scenes
+    full_dataset = make_dataset(
+        id_dataset=dataset_config.TYPE, config=dataset_config
+    )
+    full_episodes = {
+        (ep.scene_id, ep.episode_id) for ep in full_dataset.episodes
+    }
 
-        dataset_config.content_scenes = scenes[0 : len(scenes) // 2]
-        split1_dataset = make_dataset(
-            id_dataset=dataset_config.type, config=dataset_config
-        )
-        split1_episodes = {
-            (ep.scene_id, ep.episode_id) for ep in split1_dataset.episodes
-        }
+    dataset_config.CONTENT_SCENES = scenes[0 : len(scenes) // 2]
+    split1_dataset = make_dataset(
+        id_dataset=dataset_config.TYPE, config=dataset_config
+    )
+    split1_episodes = {
+        (ep.scene_id, ep.episode_id) for ep in split1_dataset.episodes
+    }
 
-        dataset_config.content_scenes = scenes[len(scenes) // 2 :]
-        split2_dataset = make_dataset(
-            id_dataset=dataset_config.type, config=dataset_config
-        )
-        split2_episodes = {
-            (ep.scene_id, ep.episode_id) for ep in split2_dataset.episodes
-        }
+    dataset_config.CONTENT_SCENES = scenes[len(scenes) // 2 :]
+    split2_dataset = make_dataset(
+        id_dataset=dataset_config.TYPE, config=dataset_config
+    )
+    split2_episodes = {
+        (ep.scene_id, ep.episode_id) for ep in split2_dataset.episodes
+    }
 
-        assert full_episodes == split1_episodes.union(
-            split2_episodes
-        ), "Split dataset is not equal to full dataset"
-        assert (
-            len(split1_episodes.intersection(split2_episodes)) == 0
-        ), "Intersection of split datasets is not the empty set"
+    assert full_episodes == split1_episodes.union(
+        split2_episodes
+    ), "Split dataset is not equal to full dataset"
+    assert (
+        len(split1_episodes.intersection(split2_episodes)) == 0
+    ), "Intersection of split datasets is not the empty set"
 
 
 def test_mp3d_eqa_sim():
     eqa_config = get_config(CFG_TEST)
 
     if not mp3d_dataset.Matterport3dDatasetV1.check_config_paths_exist(
-        eqa_config.habitat.dataset
+        eqa_config.DATASET
     ):
         pytest.skip("Please download Matterport3D EQA dataset to data folder.")
 
     dataset = make_dataset(
-        id_dataset=eqa_config.habitat.dataset.type,
-        config=eqa_config.habitat.dataset,
+        id_dataset=eqa_config.DATASET.TYPE, config=eqa_config.DATASET
     )
     with habitat.Env(config=eqa_config, dataset=dataset) as env:
         env.episodes = dataset.episodes[:EPISODES_LIMIT]
@@ -173,17 +176,13 @@ def test_mp3d_eqa_sim():
             obs = env.step(env.task.action_space.sample())
             if not env.episode_over:
                 assert "rgb" in obs, "RGB image is missing in observation."
-                agent_config = get_agent_config(eqa_config.habitat.simulator)
                 assert obs["rgb"].shape[:2] == (
-                    agent_config.sim_sensors.rgb_sensor.height,
-                    agent_config.sim_sensors.rgb_sensor.width,
-                ), (
-                    "Observation resolution {} doesn't correspond to config "
-                    "({}, {}).".format(
-                        obs["rgb"].shape[:2],
-                        eqa_config.habitat.simulator.rgb_sensor.height,
-                        eqa_config.habitat.simulator.rgb_sensor.width,
-                    )
+                    eqa_config.SIMULATOR.RGB_SENSOR.HEIGHT,
+                    eqa_config.SIMULATOR.RGB_SENSOR.WIDTH,
+                ), "Observation resolution {} doesn't correspond to config " "({}, {}).".format(
+                    obs["rgb"].shape[:2],
+                    eqa_config.SIMULATOR.RGB_SENSOR.HEIGHT,
+                    eqa_config.SIMULATOR.RGB_SENSOR.WIDTH,
                 )
 
 
@@ -191,13 +190,12 @@ def test_mp3d_eqa_sim_correspondence():
     eqa_config = get_config(CFG_TEST)
 
     if not mp3d_dataset.Matterport3dDatasetV1.check_config_paths_exist(
-        eqa_config.habitat.dataset
+        eqa_config.DATASET
     ):
         pytest.skip("Please download Matterport3D EQA dataset to data folder.")
 
     dataset = make_dataset(
-        id_dataset=eqa_config.habitat.dataset.type,
-        config=eqa_config.habitat.dataset,
+        id_dataset=eqa_config.DATASET.TYPE, config=eqa_config.DATASET
     )
     with habitat.Env(config=eqa_config, dataset=dataset) as env:
         env.episodes = [
@@ -222,7 +220,7 @@ def test_mp3d_eqa_sim_correspondence():
                 start_state.position, episode.start_position
             ), "Agent's start position diverges from the shortest path's one."
 
-            rgb_mean = 0.0
+            rgb_mean = 0
             logger.info(
                 "{id} {question}\n{answer}".format(
                     id=episode.episode_id,
@@ -235,9 +233,9 @@ def test_mp3d_eqa_sim_correspondence():
                 cur_state = env.sim.get_agent_state()
 
                 logger.info(
-                    "diff position: {} diff rotation: {} \n"
-                    "cur_state.position: {} shortest_path.position: {} \n"
-                    "cur_state.rotation: {} shortest_path.rotation: {} action: {}\n"
+                    "diff position: {} diff rotation: {} "
+                    "cur_state.position: {} shortest_path.position: {} "
+                    "cur_state.rotation: {} shortest_path.rotation: {} action: {}"
                     "".format(
                         cur_state.position - point.position,
                         angle_between_quaternions(
@@ -271,7 +269,7 @@ def test_mp3d_eqa_sim_correspondence():
                     RGB_EPISODE_MEANS[int(episode.episode_id)],
                     rgb_mean,
                     atol=0.5,
-                ), f"RGB output doesn't match the ground truth. Expected {RGB_EPISODE_MEANS[int(episode.episode_id)]} but got {rgb_mean}"
+                ), "RGB output doesn't match the ground truth."
 
             ep_i = (ep_i + 1) % EPISODES_LIMIT
             if ep_i == 0:
@@ -282,13 +280,12 @@ def test_eqa_task():
     eqa_config = get_config(CFG_TEST)
 
     if not mp3d_dataset.Matterport3dDatasetV1.check_config_paths_exist(
-        eqa_config.habitat.dataset
+        eqa_config.DATASET
     ):
         pytest.skip("Please download Matterport3D EQA dataset to data folder.")
 
     dataset = make_dataset(
-        id_dataset=eqa_config.habitat.dataset.type,
-        config=eqa_config.habitat.dataset,
+        id_dataset=eqa_config.DATASET.TYPE, config=eqa_config.DATASET
     )
     with habitat.Env(config=eqa_config, dataset=dataset) as env:
         env.episodes = list(

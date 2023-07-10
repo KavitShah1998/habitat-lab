@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -15,16 +15,14 @@ class ForwardOnlyAgent(habitat.Agent):
         pass
 
     def act(self, observations):
-        action = HabitatSimActions.move_forward
+        action = HabitatSimActions.MOVE_FORWARD
         return {"action": action}
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--task-config",
-        type=str,
-        default="benchmark/nav/pointnav/pointnav_habitat_test.yaml",
+        "--task-config", type=str, default="configs/tasks/pointnav.yaml"
     )
     args = parser.parse_args()
 

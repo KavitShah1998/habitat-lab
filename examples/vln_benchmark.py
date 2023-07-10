@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -48,7 +48,7 @@ def reference_path_benchmark(config, num_episodes=None):
                     env.current_episode.goals[0].position
                 )
                 if best_action == None:
-                    best_action = HabitatSimActions.stop
+                    best_action = HabitatSimActions.STOP
                 env.step(best_action)
 
             for m, v in env.get_metrics().items():
@@ -61,9 +61,7 @@ def reference_path_benchmark(config, num_episodes=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--task-config",
-        type=str,
-        default="benchmark/nav/vln_r2r.yaml",
+        "--task-config", type=str, default="configs/tasks/vln_r2r.yaml"
     )
     args = parser.parse_args()
     config = get_config(args.task_config)

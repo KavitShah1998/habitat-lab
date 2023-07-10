@@ -6,26 +6,30 @@ Habitat Lab Demo
 
 .. code:: py
 
+    import habitat
+
+    import numpy as np
     import random
+
+    %matplotlib inline
     import matplotlib.pyplot as plt
 
-    import habitat
-    from habitat.config import read_write
-
 All the boilerplate code in the habitat-sim to set sensor config and agent
-config is abstracted out in the Habitat Lab config system. Default habitat structured configs are at
-:gh:`habitat-lab/habitat/config/default_structured_configs.py <facebookresearch/habitat-lab/blob/main/habitat-lab/habitat/config/default_structured_configs.py>`.
+config is abstracted out in the Habitat Lab config system. Default config is at
+:gh:`habitat/config/default.py <facebookresearch/habitat-lab/blob/master/habitat/config/default.py>`.
 You can override defaults by specifying them in a separate file and pass it to
-the :ref:`habitat.config.get_config()` function or use `read_write` to edit
-the config object.
+the :ref:`habitat.config.get_config()` function or defrost the config object,
+override parameters and freeze the config.
 
 .. code-figure::
 
     .. code:: py
 
-        config = habitat.get_config(config_paths="benchmark/nav/pointnav/pointnav_mp3d.yaml")
-        with read_write(config):
-            config.habitat.dataset.split = "val"
+        config = habitat.get_config(config_paths='../configs/tasks/pointnav_mp3d.yaml')
+        config.defrost()
+        config.DATASET.DATA_PATH = '../data/datasets/pointnav/mp3d/v1/val/val.json.gz'
+        config.DATASET.SCENES_DIR = '../data/scene_datasets/'
+        config.freeze()
 
         env = habitat.Env(config=config)
 
@@ -102,8 +106,6 @@ the config object.
     import numpy as np
     from PIL import Image
     from habitat_sim.utils.common import d3_40_colors_rgb
-    from habitat.config.default import get_agent_config
-    from habitat.config.default_structured_configs import HabitatSimSemanticSensorConfig
 
     def display_sample(rgb_obs, semantic_obs, depth_obs):
         rgb_img = Image.fromarray(rgb_obs, mode="RGB")
@@ -126,14 +128,15 @@ the config object.
             plt.imshow(data)
         plt.show()
 
-    config = habitat.get_config(config_paths="benchmark/nav/pointnav/pointnav_mp3d.yaml")
-    with read_write(config):
-        config.habitat.dataset.split = "val"
-        agent_config = get_agent_config(sim_config=config.habitat.simulator)
-        agent_config.sim_sensors.update(
-            {"semantic_sensor": HabitatSimSemanticSensorConfig(height=256, width=256)}
-        )
-        config.habitat.simulator.turn_angle = 30
+    config = habitat.get_config(config_paths='../configs/tasks/pointnav_mp3d.yaml')
+    config.defrost()
+    config.DATASET.DATA_PATH = '../data/datasets/pointnav/mp3d/v1/val/val.json.gz'
+    config.DATASET.SCENES_DIR = '../data/scene_datasets/'
+    config.SIMULATOR.AGENT_0.SENSORS = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+    config.SIMULATOR.SEMANTIC_SENSOR.WIDTH = 256
+    config.SIMULATOR.SEMANTIC_SENSOR.HEIGHT = 256
+    config.SIMULATOR.TURN_ANGLE = 30
+    config.freeze()
 
     env = habitat.Env(config=config)
     env.episodes = random.sample(env.episodes, 2)

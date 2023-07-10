@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -12,26 +12,7 @@ import pytest
 import quaternion
 
 import habitat
-from habitat.config.default import get_agent_config, get_config
-from habitat.config.default_structured_configs import (
-    CollisionsMeasurementConfig,
-    CompassSensorConfig,
-    GPSSensorConfig,
-    HabitatSimDepthSensorConfig,
-    HabitatSimEquirectangularDepthSensorConfig,
-    HabitatSimEquirectangularRGBSensorConfig,
-    HabitatSimEquirectangularSemanticSensorConfig,
-    HabitatSimFisheyeRGBSensorConfig,
-    HabitatSimFisheyeSemanticSensorConfig,
-    HabitatSimRGBSensorConfig,
-    HabitatSimSemanticSensorConfig,
-    HeadingSensorConfig,
-    ImageGoalSensorConfig,
-    PointGoalSensorConfig,
-    PointGoalWithGPSCompassSensorConfig,
-    ProximitySensorConfig,
-    SimulatorFisheyeDepthSensorConfig,
-)
+from habitat.config.default import get_config
 from habitat.tasks.nav.nav import (
     MoveForwardAction,
     NavigationEpisode,
@@ -48,14 +29,6 @@ from habitat.utils.visualizations.utils import (
 )
 
 
-def get_test_config():
-    config = get_config("benchmark/nav/pointnav/pointnav_habitat_test.yaml")
-    with habitat.config.read_write(config):
-        config.habitat.task.measurements = {}
-        config.habitat.task.lab_sensors = {}
-    return config
-
-
 def _random_episode(env, config):
     random_location = env._sim.sample_navigable_point()
     random_heading = np.random.uniform(-np.pi, np.pi)
@@ -69,7 +42,7 @@ def _random_episode(env, config):
         [
             NavigationEpisode(
                 episode_id="0",
-                scene_id=config.habitat.simulator.scene,
+                scene_id=config.SIMULATOR.SCENE,
                 start_position=random_location,
                 start_rotation=random_rotation,
                 goals=[],
@@ -78,16 +51,13 @@ def _random_episode(env, config):
     )
 
 
-def test_lab_sensors():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+def test_state_sensors():
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.lab_sensors = {
-            "heading_sensor": HeadingSensorConfig(),
-            "compass_sensor": CompassSensorConfig(),
-            "gps_sensor": GPSSensorConfig(),
-        }
+    config.defrost()
+    config.TASK.SENSORS = ["HEADING_SENSOR", "COMPASS_SENSOR", "GPS_SENSOR"]
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
         env.reset()
         random.seed(123)
@@ -105,7 +75,7 @@ def test_lab_sensors():
                 [
                     NavigationEpisode(
                         episode_id="0",
-                        scene_id=config.habitat.simulator.scene,
+                        scene_id=config.SIMULATOR.SCENE,
                         start_position=[03.00611, 0.072_447, -2.67867],
                         start_rotation=random_rotation,
                         goals=[],
@@ -121,13 +91,12 @@ def test_lab_sensors():
 
 
 def test_tactile():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.lab_sensors = {
-            "proximity_sensor": ProximitySensorConfig()
-        }
+    config.defrost()
+    config.TASK.SENSORS = ["PROXIMITY_SENSOR"]
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
         env.reset()
         random.seed(1234)
@@ -144,13 +113,12 @@ def test_tactile():
 
 
 def test_collisions():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.measurements = {
-            "collisions": CollisionsMeasurementConfig()
-        }
+    config.defrost()
+    config.TASK.MEASUREMENTS = ["COLLISIONS"]
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
         env.reset()
 
@@ -169,7 +137,7 @@ def test_collisions():
                 loc = env.sim.get_agent_state().position
                 if (
                     np.linalg.norm(loc - prev_loc)
-                    < 0.9 * config.habitat.simulator.forward_step_size
+                    < 0.9 * config.SIMULATOR.FORWARD_STEP_SIZE
                     and action["action"] == MoveForwardAction.name
                 ):
                     # Check to see if the new method of doing collisions catches
@@ -185,32 +153,30 @@ def test_collisions():
 
 
 def test_pointgoal_sensor():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.lab_sensors = {
-            "pointgoal_sensor": PointGoalSensorConfig(
-                dimensionality=3, goal_format="CARTESIAN"
-            )
-        }
+    config.defrost()
+    config.TASK.SENSORS = ["POINTGOAL_SENSOR"]
+    config.TASK.POINTGOAL_SENSOR.DIMENSIONALITY = 3
+    config.TASK.POINTGOAL_SENSOR.GOAL_FORMAT = "CARTESIAN"
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
 
         # start position is checked for validity for the specific test scene
         valid_start_position = [-1.3731, 0.08431, 8.60692]
         expected_pointgoal = [0.1, 0.2, 0.3]
         goal_position = np.add(valid_start_position, expected_pointgoal)
-        goal_position = goal_position.tolist()
 
         # starting quaternion is rotated 180 degree along z-axis, which
         # corresponds to simulator using z-negative as forward action
-        start_rotation = [0.0, 0.0, 0.0, 1.0]
+        start_rotation = [0, 0, 0, 1]
 
         env.episode_iterator = iter(
             [
                 NavigationEpisode(
                     episode_id="0",
-                    scene_id=config.habitat.simulator.scene,
+                    scene_id=config.SIMULATOR.SCENE,
                     start_position=valid_start_position,
                     start_rotation=start_rotation,
                     goals=[NavigationGoal(position=goal_position)],
@@ -227,37 +193,40 @@ def test_pointgoal_sensor():
 
 
 def test_pointgoal_with_gps_compass_sensor():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.lab_sensors = {
-            "pointgoal_with_gps_compass_sensor": PointGoalWithGPSCompassSensorConfig(
-                dimensionality=3, goal_format="CARTESIAN"
-            ),
-            "compass_sensor": CompassSensorConfig(),
-            "gps_sensor": GPSSensorConfig(dimensionality=3),
-            "pointgoal_sensor": PointGoalSensorConfig(
-                dimensionality=3, goal_format="CARTESIAN"
-            ),
-        }
+    config.defrost()
+    config.TASK.SENSORS = [
+        "POINTGOAL_WITH_GPS_COMPASS_SENSOR",
+        "COMPASS_SENSOR",
+        "GPS_SENSOR",
+        "POINTGOAL_SENSOR",
+    ]
+    config.TASK.POINTGOAL_WITH_GPS_COMPASS_SENSOR.DIMENSIONALITY = 3
+    config.TASK.POINTGOAL_WITH_GPS_COMPASS_SENSOR.GOAL_FORMAT = "CARTESIAN"
 
+    config.TASK.POINTGOAL_SENSOR.DIMENSIONALITY = 3
+    config.TASK.POINTGOAL_SENSOR.GOAL_FORMAT = "CARTESIAN"
+
+    config.TASK.GPS_SENSOR.DIMENSIONALITY = 3
+
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
         # start position is checked for validity for the specific test scene
         valid_start_position = [-1.3731, 0.08431, 8.60692]
         expected_pointgoal = [0.1, 0.2, 0.3]
         goal_position = np.add(valid_start_position, expected_pointgoal)
-        goal_position = goal_position.tolist()
 
         # starting quaternion is rotated 180 degree along z-axis, which
         # corresponds to simulator using z-negative as forward action
-        start_rotation = [0.0, 0.0, 0.0, 1.0]
+        start_rotation = [0, 0, 0, 1]
 
         env.episode_iterator = iter(
             [
                 NavigationEpisode(
                     episode_id="0",
-                    scene_id=config.habitat.simulator.scene,
+                    scene_id=config.SIMULATOR.SCENE,
                     start_position=valid_start_position,
                     start_rotation=start_rotation,
                     goals=[NavigationGoal(position=goal_position)],
@@ -286,43 +255,39 @@ def test_pointgoal_with_gps_compass_sensor():
 
 
 def test_imagegoal_sensor():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.lab_sensors = {
-            "imagegoal_sensor": ImageGoalSensorConfig()
-        }
-        agent_config = get_agent_config(config.habitat.simulator)
-        agent_config.sim_sensors = {"rgb_sensor": HabitatSimRGBSensorConfig()}
+    config.defrost()
+    config.TASK.SENSORS = ["IMAGEGOAL_SENSOR"]
+    config.SIMULATOR.AGENT_0.SENSORS = ["RGB_SENSOR"]
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
 
         # start position is checked for validity for the specific test scene
         valid_start_position = [-1.3731, 0.08431, 8.60692]
         pointgoal = [0.1, 0.2, 0.3]
         goal_position = np.add(valid_start_position, pointgoal)
-        goal_position = goal_position.tolist()
 
         pointgoal_2 = [0.3, 0.2, 0.1]
         goal_position_2 = np.add(valid_start_position, pointgoal_2)
-        goal_position_2 = goal_position_2.tolist()
 
         # starting quaternion is rotated 180 degree along z-axis, which
         # corresponds to simulator using z-negative as forward action
-        start_rotation = [0.0, 0.0, 0.0, 1.0]
+        start_rotation = [0, 0, 0, 1]
 
         env.episode_iterator = iter(
             [
                 NavigationEpisode(
                     episode_id="0",
-                    scene_id=config.habitat.simulator.scene,
+                    scene_id=config.SIMULATOR.SCENE,
                     start_position=valid_start_position,
                     start_rotation=start_rotation,
                     goals=[NavigationGoal(position=goal_position)],
                 ),
                 NavigationEpisode(
                     episode_id="1",
-                    scene_id=config.habitat.simulator.scene,
+                    scene_id=config.SIMULATOR.SCENE,
                     start_position=valid_start_position,
                     start_rotation=start_rotation,
                     goals=[NavigationGoal(position=goal_position_2)],
@@ -350,33 +315,29 @@ def test_imagegoal_sensor():
 
 
 def test_get_observations_at():
-    config = get_test_config()
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
-    with habitat.config.read_write(config):
-        config.habitat.task.lab_sensors = {}
-        agent_config = get_agent_config(config.habitat.simulator)
-        agent_config.sim_sensors = {
-            "rgb_sensor": HabitatSimRGBSensorConfig(),
-            "depth_sensor": HabitatSimDepthSensorConfig(),
-        }
+    config.defrost()
+    config.TASK.SENSORS = []
+    config.SIMULATOR.AGENT_0.SENSORS = ["RGB_SENSOR", "DEPTH_SENSOR"]
+    config.freeze()
     with habitat.Env(config=config, dataset=None) as env:
 
         # start position is checked for validity for the specific test scene
         valid_start_position = [-1.3731, 0.08431, 8.60692]
         expected_pointgoal = [0.1, 0.2, 0.3]
         goal_position = np.add(valid_start_position, expected_pointgoal)
-        goal_position = goal_position.tolist()
 
         # starting quaternion is rotated 180 degree along z-axis, which
         # corresponds to simulator using z-negative as forward action
-        start_rotation = [0.0, 0.0, 0.0, 1.0]
+        start_rotation = [0, 0, 0, 1]
 
         env.episode_iterator = iter(
             [
                 NavigationEpisode(
                     episode_id="0",
-                    scene_id=config.habitat.simulator.scene,
+                    scene_id=config.SIMULATOR.SCENE,
                     start_position=valid_start_position,
                     start_rotation=start_rotation,
                     goals=[NavigationGoal(position=goal_position)],
@@ -417,148 +378,31 @@ def test_get_observations_at():
         assert np.allclose(agent_state.rotation, start_state.rotation)
 
 
-def smoke_test_sensor(config, N_STEPS=100):
-    if not os.path.exists(config.habitat.simulator.scene):
-        pytest.skip("Please download Habitat test data to data folder.")
-
-    valid_start_position = [-1.3731, 0.08431, 8.60692]
-
-    expected_pointgoal = [0.1, 0.2, 0.3]
-    goal_position = np.add(valid_start_position, expected_pointgoal)
-    goal_position = goal_position.tolist()
-
-    # starting quaternion is rotated 180 degree along z-axis, which
-    # corresponds to simulator using z-negative as forward action
-    start_rotation = [0.0, 0.0, 0.0, 1.0]
-    test_episode = NavigationEpisode(
-        episode_id="0",
-        scene_id=config.habitat.simulator.scene,
-        start_position=valid_start_position,
-        start_rotation=start_rotation,
-        goals=[NavigationGoal(position=goal_position)],
-    )
-
-    with habitat.Env(config=config, dataset=None) as env:
-
-        env.episode_iterator = iter([test_episode])
-        no_noise_obs = env.reset()
-        assert no_noise_obs is not None
-
-        actions = [
-            sample_non_stop_action(env.action_space) for _ in range(N_STEPS)
-        ]
-        for action in actions:
-            assert env.step(action) is not None
-
-
-@pytest.mark.parametrize(
-    "sensors",
-    [
-        {"fisheye_rgb_sensor": HabitatSimFisheyeRGBSensorConfig()},
-        {"fisheye_depth_sensor": SimulatorFisheyeDepthSensorConfig()},
-        {"fisheye_semantic_sensor": HabitatSimFisheyeSemanticSensorConfig()},
-        {"equirect_rgb_sensor": HabitatSimEquirectangularRGBSensorConfig()},
-        {
-            "equirect_depth_sensor": HabitatSimEquirectangularDepthSensorConfig()
-        },
-        {
-            "equirect_semantic_sensor": HabitatSimEquirectangularSemanticSensorConfig()
-        },
-    ],
-)
-@pytest.mark.parametrize("cuda", [True, False])
-def test_smoke_not_pinhole_sensors(sensors, cuda):
-    habitat_sim = pytest.importorskip("habitat_sim")
-    if not habitat_sim.cuda_enabled and cuda:
-        pytest.skip("habitat_sim must be built with CUDA to test G2P2GPU")
-    config = get_test_config()
-    with habitat.config.read_write(config):
-        config.habitat.simulator.habitat_sim_v0.gpu_gpu = cuda
-
-        config.habitat.simulator.scene = (
-            "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb"
-        )
-        agent_config = get_agent_config(config.habitat.simulator)
-        agent_config.sim_sensors = sensors
-    smoke_test_sensor(config)
-
-
-@pytest.mark.parametrize(
-    "sensor",
-    [
-        {
-            "rgb_sensor": HabitatSimRGBSensorConfig(
-                sensor_subtype="ORTHOGRAPHIC"
-            )
-        },
-        {"rgb_sensor": HabitatSimRGBSensorConfig(sensor_subtype="PINHOLE")},
-        {
-            "depth_sensor": HabitatSimDepthSensorConfig(
-                sensor_subtype="ORTHOGRAPHIC"
-            )
-        },
-        {
-            "depth_sensor": HabitatSimDepthSensorConfig(
-                sensor_subtype="PINHOLE"
-            )
-        },
-        {
-            "semantic_sensor": HabitatSimSemanticSensorConfig(
-                sensor_subtype="ORTHOGRAPHIC"
-            )
-        },
-        {
-            "semantic_sensor": HabitatSimSemanticSensorConfig(
-                sensor_subtype="PINHOLE"
-            )
-        },
-    ],
-)
-@pytest.mark.parametrize("cuda", [True, False])
-def test_smoke_pinhole_sensors(sensor, cuda):
-    habitat_sim = pytest.importorskip("habitat_sim")
-    if not habitat_sim.cuda_enabled and cuda:
-        pytest.skip("habitat_sim must be built with CUDA")
-    config = get_test_config()
-    with habitat.config.read_write(config):
-        config.habitat.simulator.habitat_sim_v0.gpu_gpu = cuda
-        config.habitat.simulator.scene = (
-            "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb"
-        )
-        agent_config = get_agent_config(config.habitat.simulator)
-        agent_config.sim_sensors = sensor
-    smoke_test_sensor(config)
-
-
 def test_noise_models_rgbd():
     DEMO_MODE = False
     N_STEPS = 100
 
-    config = get_test_config()
-    with habitat.config.read_write(config):
-        config.habitat.simulator.scene = (
-            "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb"
-        )
-        agent_config = get_agent_config(config.habitat.simulator)
-        agent_config.sim_sensors = {
-            "rgb_sensor": HabitatSimRGBSensorConfig(),
-            "depth_sensor": HabitatSimDepthSensorConfig(),
-        }
-    if not os.path.exists(config.habitat.simulator.scene):
+    config = get_config()
+    config.defrost()
+    config.SIMULATOR.SCENE = (
+        "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb"
+    )
+    config.SIMULATOR.AGENT_0.SENSORS = ["RGB_SENSOR", "DEPTH_SENSOR"]
+    config.freeze()
+    if not os.path.exists(config.SIMULATOR.SCENE):
         pytest.skip("Please download Habitat test data to data folder.")
 
     valid_start_position = [-1.3731, 0.08431, 8.60692]
 
     expected_pointgoal = [0.1, 0.2, 0.3]
     goal_position = np.add(valid_start_position, expected_pointgoal)
-    goal_position = goal_position.tolist()
 
     # starting quaternion is rotated 180 degree along z-axis, which
     # corresponds to simulator using z-negative as forward action
-    start_rotation = [0.0, 0.0, 0.0, 1.0]
+    start_rotation = [0, 0, 0, 1]
     test_episode = NavigationEpisode(
         episode_id="0",
-        scene_id=config.habitat.simulator.scene,
+        scene_id=config.SIMULATOR.SCENE,
         start_position=valid_start_position,
         start_rotation=start_rotation,
         goals=[NavigationGoal(position=goal_position)],
@@ -577,42 +421,40 @@ def test_noise_models_rgbd():
         for action in actions:
             no_noise_obs.append(env.step(action))
             no_noise_states.append(env.sim.get_agent_state())
+        env.close()
 
-    with habitat.config.read_write(config):
-        agent_config = get_agent_config(config.habitat.simulator)
-        agent_config.sim_sensors.rgb_sensor.noise_model = "GaussianNoiseModel"
-        agent_config.sim_sensors.rgb_sensor.noise_model_kwargs.INTENSITY_CONSTANT = (
-            0.5
-        )
-        agent_config.sim_sensors.depth_sensor.noise_model = (
-            "RedwoodDepthNoiseModel"
-        )
+        config.defrost()
 
-        config.habitat.simulator.action_space_config = "pyrobotnoisy"
-        config.habitat.simulator.action_space_config_arguments = {
-            "NOISE_MODEL": {
-                "robot": "LoCoBot",
-                "CONTROLLER": "Proportional",
-                "NOISE_MULTIPLIER": 0.5,
-            }
-        }
-    with habitat.Env(config=config, dataset=None) as env:
+        config.SIMULATOR.RGB_SENSOR.NOISE_MODEL = "GaussianNoiseModel"
+        config.SIMULATOR.RGB_SENSOR.NOISE_MODEL_KWARGS = habitat.Config()
+        config.SIMULATOR.RGB_SENSOR.NOISE_MODEL_KWARGS.INTENSITY_CONSTANT = 0.5
+        config.SIMULATOR.DEPTH_SENSOR.NOISE_MODEL = "RedwoodDepthNoiseModel"
+
+        config.SIMULATOR.ACTION_SPACE_CONFIG = "pyrobotnoisy"
+        config.SIMULATOR.NOISE_MODEL = habitat.Config()
+        config.SIMULATOR.NOISE_MODEL.ROBOT = "LoCoBot"
+        config.SIMULATOR.NOISE_MODEL.CONTROLLER = "Proportional"
+        config.SIMULATOR.NOISE_MODEL.NOISE_MULTIPLIER = 0.5
+
+        config.freeze()
+
+        env = habitat.Env(config=config, dataset=None)
 
         env.episode_iterator = iter([test_episode])
 
         obs = env.reset()
         assert np.linalg.norm(
-            obs["rgb"].astype(np.float32)
-            - no_noise_obs[0]["rgb"].astype(np.float32)
+            obs["rgb"].astype(np.float)
+            - no_noise_obs[0]["rgb"].astype(np.float)
         ) > 1.5e-2 * np.linalg.norm(
-            no_noise_obs[0]["rgb"].astype(np.float32)
+            no_noise_obs[0]["rgb"].astype(np.float)
         ), "No RGB noise detected."
 
         assert np.linalg.norm(
-            obs["depth"].astype(np.float32)
-            - no_noise_obs[0]["depth"].astype(np.float32)
+            obs["depth"].astype(np.float)
+            - no_noise_obs[0]["depth"].astype(np.float)
         ) > 1.5e-2 * np.linalg.norm(
-            no_noise_obs[0]["depth"].astype(np.float32)
+            no_noise_obs[0]["depth"].astype(np.float)
         ), "No Depth noise detected."
 
         images = []
@@ -627,20 +469,17 @@ def test_noise_models_rgbd():
                 np.array(state.position) - np.array(prev_state.position), ord=2
             )
 
-            if action["action"][:5] == "turn_":
+            if action["action"][:5] == "TURN_":
                 angle_diff = abs(
                     angle_between_quaternions(
                         state.rotation, prev_state.rotation
                     )
-                    - np.deg2rad(config.habitat.simulator.turn_angle)
+                    - np.deg2rad(config.SIMULATOR.TURN_ANGLE)
                 )
                 angle_diffs.append(angle_diff)
             else:
                 pos_diffs.append(
-                    abs(
-                        position_change
-                        - config.habitat.simulator.forward_step_size
-                    )
+                    abs(position_change - config.SIMULATOR.FORWARD_STEP_SIZE)
                 )
 
             if DEMO_MODE:
