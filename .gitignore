@@ -1,3 +1,5 @@
+junk/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -22,9 +24,6 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Hydra
-outputs/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -90,13 +89,3 @@ data
 
 # vim
 *.swp
-
-# habitat_baselines outputs
-/videos
-/train_dir
-/tb
-
-# outputs from other libraries
-/sandbox
-/plots/outputs
-/wandb/

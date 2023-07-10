@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Install conda
-RUN curl -L -o ~/miniconda.sh -O  https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh  &&\
+RUN curl -o ~/miniconda.sh -O  https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh  &&\
     chmod +x ~/miniconda.sh &&\
     ~/miniconda.sh -b -p /opt/conda &&\
     rm ~/miniconda.sh &&\
@@ -38,7 +38,7 @@ RUN ln -s /opt/cmake/bin/cmake /usr/local/bin/cmake
 RUN cmake --version
 
 # Conda environment
-RUN conda create -n habitat python=3.7 cmake=3.14.0
+RUN conda create -n habitat python=3.6 cmake=3.14.0
 
 # Setup habitat-sim
 RUN git clone --branch stable https://github.com/facebookresearch/habitat-sim.git
@@ -46,7 +46,7 @@ RUN /bin/bash -c ". activate habitat; cd habitat-sim; pip install -r requirement
 
 # Install challenge specific habitat-lab
 RUN git clone --branch stable https://github.com/facebookresearch/habitat-lab.git
-RUN /bin/bash -c ". activate habitat; cd habitat-lab; pip install -e habitat-lab/"
+RUN /bin/bash -c ". activate habitat; cd habitat-lab; pip install -e ."
 
 # Silence habitat-sim logs
 ENV GLOG_minloglevel=2

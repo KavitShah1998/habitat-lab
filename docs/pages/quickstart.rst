@@ -63,7 +63,7 @@ you can install using: :sh:`pip install opencv-python`.
 
     def example():
         env = habitat.Env(
-            config=habitat.get_config("benchmark/nav/pointnav/pointnav_habitat_test.yaml")
+            config=habitat.get_config("configs/tasks/pointnav.yaml")
         )
 
         print("Environment creation successful")
@@ -80,16 +80,16 @@ you can install using: :sh:`pip install opencv-python`.
             keystroke = cv2.waitKey(0)
 
             if keystroke == ord(FORWARD_KEY):
-                action = HabitatSimActions.move_forward
+                action = HabitatSimActions.MOVE_FORWARD
                 print("action: FORWARD")
             elif keystroke == ord(LEFT_KEY):
-                action = HabitatSimActions.turn_left
+                action = HabitatSimActions.TURN_LEFT
                 print("action: LEFT")
             elif keystroke == ord(RIGHT_KEY):
-                action = HabitatSimActions.turn_right
+                action = HabitatSimActions.TURN_RIGHT
                 print("action: RIGHT")
             elif keystroke == ord(FINISH):
-                action = HabitatSimActions.stop
+                action = HabitatSimActions.STOP
                 print("action: FINISH")
             else:
                 print("INVALID KEY")
@@ -106,7 +106,7 @@ you can install using: :sh:`pip install opencv-python`.
         print("Episode finished after {} steps.".format(count_steps))
 
         if (
-            action == HabitatSimActions.stop
+            action == HabitatSimActions.STOP
             and observations["pointgoal_with_gps_compass"][0] < 0.2
         ):
             print("you successfully navigated to destination point")
@@ -122,7 +122,7 @@ move around in the environment using :label-default:`W`, :label-default:`A`,
 :label-default:`D`, :label-default:`F` keys. On the terminal a destination
 vector in polar format will be printed with distance to goal and angle to goal.
 Once you are withing 0.2m of goal you can press the :label-default:`F` key to
-``stop`` and finish the episode successfully. If your finishing distance to
+``STOP`` and finish the episode successfully. If your finishing distance to
 goal is :math:`> 0.2m` or if you spend more than 500 steps in the environment
 your episode will be unsuccessful.
 
@@ -131,8 +131,8 @@ Below is a demo of what the example output will look like:
 .. image:: quickstart.png
 
 For more examples refer to
-:gh:`Habitat Lab examples <facebookresearch/habitat-lab/tree/main/examples>`
-and :gh:`Habitat-Sim examples <facebookresearch/habitat-sim/tree/main/examples>`.
+:gh:`Habitat Lab examples <facebookresearch/habitat-lab/tree/master/examples>`
+and :gh:`Habitat-Sim examples <facebookresearch/habitat-sim/tree/master/examples>`.
 
 
 

@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -9,17 +9,6 @@ import sys
 sys.path = [os.path.join(os.path.dirname(__file__), "../")] + sys.path
 
 import habitat  # isort:skip
-
-import gym  # isort:skip
-import typing  # isort:skip
-
-# Override the typing annotation of _np_random of gym.Env since the type provided is
-# "RandomNumberGenerator | None" and the "|" symbol for typing is not valid in Python <3.10
-# Remove when upgrading to Python 3.10
-gym.Env.__annotations__["_np_random"] = typing.Optional[
-    gym.utils.seeding.RandomNumberGenerator
-]
-
 
 # Overrides the __all__ as that one pulls everything into the root module
 # and doesn't expose any submodules
@@ -32,8 +21,8 @@ habitat.core.__all__ = [
     "registry",
     "vector_env",
 ]
-# Hydra's DictConfig isn't ours, so don't document it
-habitat.config.__all__.remove("DictConfig")
+# yacs.config isn't ours, so don't document it
+habitat.config.__all__.remove("Config")
 
 PROJECT_TITLE = "Habitat"
 PROJECT_SUBTITLE = "Lab Docs"
@@ -47,7 +36,6 @@ INPUT_PAGES = [
     "pages/quickstart.rst",
     "pages/habitat-sim-demo.rst",
     "pages/habitat-lab-demo.rst",
-    "pages/habitat2.rst",
     "pages/view-transform-warp.rst",
 ]
 
@@ -81,7 +69,6 @@ LINKS_NAVBAR1 = [
             ("Quickstart", "quickstart"),
             ("Habitat Sim Demo", "habitat-sim-demo"),
             ("Habitat Lab Demo", "habitat-lab-demo"),
-            ("Habitat 2.0 Overview", "habitat2"),
             ("View, Transform and Warp", "view-transform-warp"),
         ],
     ),
@@ -92,8 +79,7 @@ LINKS_NAVBAR2 = [
 ]
 
 FINE_PRINT = f"""
-| {PROJECT_TITLE} {PROJECT_SUBTITLE}. Copyright © 2021 Facebook AI Research.
-| `Terms of Use </terms-of-use>`_ `Data Policy </data-policy>`_ `Cookie Policy </cookie-policy>`_
+| {PROJECT_TITLE} {PROJECT_SUBTITLE}. Copyright © 2019 Facebook AI Research.
 | Created with `m.css Python doc generator <https://mcss.mosra.cz/documentation/python/>`_."""
 
 STYLESHEETS = [

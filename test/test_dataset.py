@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -9,7 +9,6 @@ from itertools import groupby, islice
 import pytest
 
 from habitat.core.dataset import Dataset, Episode
-from habitat.tasks.nav.nav import NavigationEpisode, NavigationGoal
 
 
 def _construct_dataset(num_episodes, num_groups=10):
@@ -22,7 +21,7 @@ def _construct_dataset(num_episodes, num_groups=10):
             start_rotation=[0, 0, 0, 1],
         )
         episodes.append(episode)
-    dataset: Dataset = Dataset()
+    dataset = Dataset()
     dataset.episodes = episodes
     return dataset
 
@@ -360,19 +359,3 @@ def test_preserve_order():
     episode_iter = dataset.get_episode_iterator(shuffle=False, cycle=False)
 
     assert list(episode_iter) == episodes
-
-
-def test_reset_goals():
-    ep = NavigationEpisode(
-        episode_id="0",
-        scene_id="1",
-        start_position=[0, 0, 0],
-        start_rotation=[1, 0, 0, 0],
-        goals=[NavigationGoal(position=[1, 2, 3])],
-    )
-
-    ep._shortest_path_cache = "Dummy"
-    assert ep._shortest_path_cache is not None
-
-    ep.goals = [NavigationGoal(position=[3, 4, 5])]
-    assert ep._shortest_path_cache is None

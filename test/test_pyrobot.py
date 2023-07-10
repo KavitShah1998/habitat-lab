@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 import sys
@@ -7,7 +7,7 @@ import sys
 import mock
 import numpy as np
 
-from habitat.config.default_structured_configs import PyrobotConfig
+from habitat.config.default import get_config
 from habitat.sims import make_sim
 
 
@@ -25,7 +25,7 @@ class CameraMock:
         pass
 
 
-class RobotMock:  # noqa: SIM119
+class RobotMock:
     def __init__(self, *args, **kwargs):
         self.camera = CameraMock()
         self.base = BaseMock()
@@ -52,7 +52,8 @@ def test_pyrobot(mocker):
 
         _try_register_pyrobot()
 
-    with make_sim("PyRobot-v0", config=PyrobotConfig()) as reality:
+    config = get_config()
+    with make_sim("PyRobot-v0", config=config.PYROBOT) as reality:
 
         _ = reality.reset()
         _ = reality.step(

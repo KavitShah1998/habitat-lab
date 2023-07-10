@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Meta Platforms, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -14,18 +14,15 @@ from glob import glob
 
 import pytest
 
-from habitat.config.default import get_agent_config
 from habitat.core.vector_env import VectorEnv
 
 try:
     import torch
     import torch.distributed
 
-    import habitat_sim.utils.datasets_download as data_downloader
     from habitat_baselines.common.base_trainer import BaseRLTrainer
     from habitat_baselines.common.baseline_registry import baseline_registry
     from habitat_baselines.config.default import get_config
-    from habitat_baselines.rl.ddppo.ddp_utils import find_free_port
     from habitat_baselines.run import execute_exp, run_exp
     from habitat_baselines.utils.common import batch_obs
 
@@ -33,73 +30,52 @@ try:
 except ImportError:
     baseline_installed = False
 
-from habitat import make_dataset
-from habitat.config import read_write
-from habitat.config.default_structured_configs import (
-    HeadDepthSensorConfig,
-    HeadRGBSensorConfig,
-)
-from habitat.utils.gym_definitions import make_gym_from_config
-from habitat_baselines.config.default_structured_configs import (
-    Cube2EqConfig,
-    Cube2FishConfig,
-)
 
-
-@pytest.fixture(scope="module", autouse=True)
-def download_data():
-    # Download the needed datasets
-    data_downloader.main(["--uids", "rearrange_task_assets", "--no-replace"])
+def _powerset(s):
+    return [
+        combo
+        for r in range(len(s) + 1)
+        for combo in itertools.combinations(s, r)
+    ]
 
 
 @pytest.mark.skipif(
     not baseline_installed, reason="baseline sub-module not installed"
 )
 @pytest.mark.parametrize(
-    "test_cfg_path,gpu2gpu,observation_transforms_overrides,mode",
+    "test_cfg_path,mode,gpu2gpu,observation_transforms",
     list(
         itertools.product(
-            glob("habitat-baselines/habitat_baselines/config/test/*"),
+            glob("habitat_baselines/config/test/*"),
+            ["train", "eval"],
             [False],
             [
                 [],
                 [
-                    "+habitat_baselines/rl/policy/obs_transforms=[center_cropper_base, resize_shortest_edge_base]",
+                    "CenterCropper",
+                    "ResizeShortestEdge",
                 ],
             ],
-            ["train", "eval"],
         )
     )
     + list(
         itertools.product(
-            [
-                "habitat-baselines/habitat_baselines/config/test/ppo_pointnav_test.yaml"
-            ],
+            ["habitat_baselines/config/test/ppo_pointnav_test.yaml"],
+            ["train", "eval"],
             [True],
             [
                 [],
                 [
-                    "+habitat_baselines/rl/policy/obs_transforms=[center_cropper_base, resize_shortest_edge_base]",
+                    "CenterCropper",
+                    "ResizeShortestEdge",
                 ],
             ],
-            ["train", "eval"],
         )
     ),
 )
-def test_trainers(
-    test_cfg_path, gpu2gpu, observation_transforms_overrides, mode
-):
-    # For testing with world_size=1
-    os.environ["MAIN_PORT"] = str(find_free_port())
-
-    test_cfg_cleaned_path = test_cfg_path.replace(
-        "habitat-baselines/habitat_baselines/config/", ""
-    )
-
-    config = get_config(test_cfg_cleaned_path).habitat.dataset
-    dataset = make_dataset(id_dataset=config.type)
-    if not dataset.check_config_paths_exist(config):
-        pytest.skip("Test skipped as dataset files are missing.")
+def test_trainers(test_cfg_path, mode, gpu2gpu, observation_transforms):
+    # For testing with world_size=1, -1 works as port in PyTorch
+    os.environ["MASTER_PORT"] = str(-1)
 
     if gpu2gpu:
         try:
@@ -110,80 +86,23 @@ def test_trainers(
         if not habitat_sim.cuda_enabled:
             pytest.skip("GPU-GPU requires CUDA")
 
-    try:
-        run_exp(
-            test_cfg_cleaned_path,
-            mode,
-            [
-                f"habitat.simulator.habitat_sim_v0.gpu_gpu={str(gpu2gpu)}",
-            ]
-            + observation_transforms_overrides,
-        )
-    finally:
-        # Needed to destroy the trainer
-        gc.collect()
-
-        # Deinit processes group
-        if torch.distributed.is_initialized():
-            torch.distributed.destroy_process_group()
-
-
-@pytest.mark.skipif(
-    not baseline_installed, reason="baseline sub-module not installed"
-)
-@pytest.mark.parametrize(
-    "test_cfg_path",
-    (
-        "test/ddppo_pointnav_test.yaml",
-        "rearrange/rl_skill.yaml",
-    ),
-)
-@pytest.mark.parametrize("variable_experience", [True, False])
-@pytest.mark.parametrize("overlap_rollouts_and_learn", [True, False])
-def test_ver_trainer(
-    test_cfg_path,
-    variable_experience,
-    overlap_rollouts_and_learn,
-):
-    # For testing with world_size=1
-    os.environ["MAIN_PORT"] = str(find_free_port())
-    try:
-        run_exp(
-            test_cfg_path,
-            "train",
-            [
-                "habitat_baselines.num_environments=4",
-                "habitat_baselines.trainer_name=ver",
-                f"habitat_baselines.rl.ver.variable_experience={str(variable_experience)}",
-                f"habitat_baselines.rl.ver.overlap_rollouts_and_learn={str(overlap_rollouts_and_learn)}",
-                "+habitat_baselines/rl/policy/obs_transforms=[center_cropper_base, resize_shortest_edge_base]",
-                "habitat_baselines.num_updates=2",
-                "habitat_baselines.total_num_steps=-1",
-                "habitat_baselines.rl.preemption.save_state_batch_only=True",
-                "habitat_baselines.rl.ppo.num_steps=16",
-            ],
-        )
-    finally:
-        # Needed to destroy the trainer
-        gc.collect()
-
-        # Deinit processes group
-        if torch.distributed.is_initialized():
-            torch.distributed.destroy_process_group()
-
-
-def test_cpca():
-    cfg = get_config(
-        "test/ppo_pointnav_test.yaml",
-        ["+habitat_baselines/rl/auxiliary_losses=cpca"],
-    )
-    assert "cpca" in cfg.habitat_baselines.rl.auxiliary_losses
-
     run_exp(
-        "test/ppo_pointnav_test.yaml",
-        "train",
-        ["+habitat_baselines/rl/auxiliary_losses=cpca"],
+        test_cfg_path,
+        mode,
+        [
+            "TASK_CONFIG.SIMULATOR.HABITAT_SIM_V0.GPU_GPU",
+            str(gpu2gpu),
+            "RL.POLICY.OBS_TRANSFORMS.ENABLED_TRANSFORMS",
+            str(tuple(observation_transforms)),
+        ],
     )
+
+    # Needed to destroy the trainer
+    gc.collect()
+
+    # Deinit processes group
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
 
 
 @pytest.mark.skipif(
@@ -193,68 +112,53 @@ def test_cpca():
     "test_cfg_path,mode",
     [
         [
-            "test/ppo_pointnav_test.yaml",
+            "habitat_baselines/config/test/ppo_pointnav_test.yaml",
             "train",
         ],
     ],
 )
 @pytest.mark.parametrize("camera", ["equirect", "fisheye", "cubemap"])
-@pytest.mark.parametrize("sensor_type", ["rgb", "depth"])
+@pytest.mark.parametrize("sensor_type", ["RGB", "DEPTH"])
 def test_cubemap_stiching(
     test_cfg_path: str, mode: str, camera: str, sensor_type: str
 ):
-    meta_config = get_config(config_path=test_cfg_path)
-    with read_write(meta_config):
-        config = meta_config.habitat
-        CAMERA_NUM = 6
-        orient = [
-            [0, math.pi, 0],  # Back
-            [-math.pi / 2, 0, 0],  # Down
-            [0, 0, 0],  # Front
-            [0, math.pi / 2, 0],  # Right
-            [0, 3 / 2 * math.pi, 0],  # Left
-            [math.pi / 2, 0, 0],  # Up
-        ]
-        sensor_uuids = []
+    meta_config = get_config(config_paths=test_cfg_path)
+    meta_config.defrost()
+    config = meta_config.TASK_CONFIG
+    CAMERA_NUM = 6
+    orient = [
+        [0, math.pi, 0],  # Back
+        [-math.pi / 2, 0, 0],  # Down
+        [0, 0, 0],  # Front
+        [0, math.pi / 2, 0],  # Right
+        [0, 3 / 2 * math.pi, 0],  # Left
+        [math.pi / 2, 0, 0],  # Up
+    ]
+    sensor_uuids = []
 
-        agent_config = get_agent_config(config.simulator)
-        if sensor_type == "rgb":
-            agent_config.sim_sensors = {
-                "rgb_sensor": HeadRGBSensorConfig(width=256, height=256),
-            }
-        elif sensor_type == "depth":
-            agent_config.sim_sensors = {
-                "depth_sensor": HeadDepthSensorConfig(width=256, height=256),
-            }
-        else:
-            raise ValueError(
-                "Typo in the sensor type in test_cubemap_stiching"
-            )
+    if f"{sensor_type}_SENSOR" not in config.SIMULATOR.AGENT_0.SENSORS:
+        config.SIMULATOR.AGENT_0.SENSORS.append(f"{sensor_type}_SENSOR")
+    sensor = getattr(config.SIMULATOR, f"{sensor_type}_SENSOR")
+    for camera_id in range(CAMERA_NUM):
+        camera_template = f"{sensor_type}_{camera_id}"
+        camera_config = deepcopy(sensor)
+        camera_config.ORIENTATION = orient[camera_id]
+        camera_config.UUID = camera_template.lower()
+        sensor_uuids.append(camera_config.UUID)
+        setattr(config.SIMULATOR, camera_template, camera_config)
+        config.SIMULATOR.AGENT_0.SENSORS.append(camera_template)
 
-        sensor = agent_config.sim_sensors[f"{sensor_type}_sensor"]
-        for camera_id in range(CAMERA_NUM):
-            camera_template = f"{sensor_type}_{camera_id}"
-            camera_config = deepcopy(sensor)
-            camera_config.orientation = orient[camera_id]
-            camera_config.uuid = camera_template.lower()
-            sensor_uuids.append(camera_config.uuid)
-            agent_config.sim_sensors[camera_template] = camera_config
-
-        meta_config.habitat = config
-
-        if camera == "equirect":
-            meta_config.habitat_baselines.rl.policy.obs_transforms = {
-                "cube2eq": Cube2EqConfig(
-                    sensor_uuids=sensor_uuids, width=256, height=256
-                )
-            }
-        elif camera == "fisheye":
-            meta_config.habitat_baselines.rl.policy.obs_transforms = {
-                "cube2fish": Cube2FishConfig(
-                    sensor_uuids=sensor_uuids, width=256, height=256
-                )
-            }
-
+    meta_config.TASK_CONFIG = config
+    meta_config.SENSORS = config.SIMULATOR.AGENT_0.SENSORS
+    if camera == "equirect":
+        meta_config.RL.POLICY.OBS_TRANSFORMS.CUBE2EQ.SENSOR_UUIDS = tuple(
+            sensor_uuids
+        )
+    elif camera == "fisheye":
+        meta_config.RL.POLICY.OBS_TRANSFORMS.CUBE2FISH.SENSOR_UUIDS = tuple(
+            sensor_uuids
+        )
+    meta_config.freeze()
     if camera in ["equirect", "fisheye"]:
         execute_exp(meta_config, mode)
         # Deinit processes group
@@ -267,14 +171,13 @@ def test_cubemap_stiching(
         # 3) Compare the input and output cubemap
         env_fn_args = []
         for split in ["train", "val"]:
-            tmp_config = config.copy()
-            with read_write(tmp_config):
-                tmp_config.dataset["split"] = split
-            env_fn_args.append((tmp_config,))
+            tmp_config = config.clone()
+            tmp_config.defrost()
+            tmp_config.DATASET["SPLIT"] = split
+            tmp_config.freeze()
+            env_fn_args.append((tmp_config, None))
 
-        with VectorEnv(
-            make_env_fn=make_gym_from_config, env_fn_args=env_fn_args
-        ) as envs:
+        with VectorEnv(env_fn_args=env_fn_args) as envs:
             observations = envs.reset()
         batch = batch_obs(observations)
         orig_batch = deepcopy(batch)
@@ -302,7 +205,7 @@ def test_cubemap_stiching(
         input_cube = torch.flatten(input_cube, end_dim=1)
 
         # Apply blur to absorb difference (blur, etc.) caused by conversion
-        if sensor_type == "rgb":
+        if sensor_type == "RGB":
             output_cube = output_cube.float() / 255
             input_cube = input_cube.float() / 255
         output_cube = output_cube.permute((0, 3, 1, 2))  # NHWC => NCHW
@@ -322,35 +225,25 @@ def test_cubemap_stiching(
     not baseline_installed, reason="baseline sub-module not installed"
 )
 def test_eval_config():
-    ckpt_opts = [
-        "habitat_baselines.eval.video_option=[]",
-        "habitat_baselines.load_resume_state_config=True",
-    ]
-    eval_opts = [
-        "habitat_baselines.eval.video_option=['disk']",
-        "habitat_baselines.load_resume_state_config=False",
-    ]
+    ckpt_opts = ["VIDEO_OPTION", "[]"]
+    eval_opts = ["VIDEO_OPTION", "['disk']"]
 
-    ckpt_cfg = get_config("test/ppo_pointnav_test.yaml", ckpt_opts)
-    assert ckpt_cfg.habitat_baselines.eval.video_option == []
+    ckpt_cfg = get_config(None, ckpt_opts)
+    assert ckpt_cfg.VIDEO_OPTION == []
+    assert ckpt_cfg.CMD_TRAILING_OPTS == ["VIDEO_OPTION", "[]"]
 
-    eval_cfg = get_config("test/ppo_pointnav_test.yaml", eval_opts)
-    assert eval_cfg.habitat_baselines.eval.video_option == ["disk"]
+    eval_cfg = get_config(None, eval_opts)
+    assert eval_cfg.VIDEO_OPTION == ["disk"]
+    assert eval_cfg.CMD_TRAILING_OPTS == ["VIDEO_OPTION", "['disk']"]
 
-    trainer = BaseRLTrainer(get_config("test/ppo_pointnav_test.yaml"))
-
-    returned_config = trainer._get_resume_state_config_or_new_config(
-        resume_state_config=ckpt_cfg
-    )
-    assert returned_config.habitat_baselines.eval.video_option == []
+    trainer = BaseRLTrainer(get_config())
+    assert trainer.config.VIDEO_OPTION == ["disk", "tensorboard"]
+    returned_config = trainer._setup_eval_config(checkpoint_config=ckpt_cfg)
+    assert returned_config.VIDEO_OPTION == []
 
     trainer = BaseRLTrainer(eval_cfg)
-    # Load state config is false. This means that _get_resume_state_config_or_new_config
-    # should use the new (eval_cfg) config instead of the resume_state_config
-    returned_config = trainer._get_resume_state_config_or_new_config(
-        resume_state_config=ckpt_cfg
-    )
-    assert returned_config.habitat_baselines.eval.video_option == ["disk"]
+    returned_config = trainer._setup_eval_config(ckpt_cfg)
+    assert returned_config.VIDEO_OPTION == ["disk"]
 
 
 def __do_pause_test(num_envs, envs_to_pause):
@@ -365,7 +258,7 @@ def __do_pause_test(num_envs, envs_to_pause):
         def pause_at(self, idx):
             self._running.pop(idx)
 
-    envs: PausableShim = PausableShim(num_envs)
+    envs = PausableShim(num_envs)
     test_recurrent_hidden_states = (
         torch.arange(num_envs).view(num_envs, 1, 1).expand(num_envs, 4, 512)
     )
@@ -401,7 +294,7 @@ def __do_pause_test(num_envs, envs_to_pause):
 
     expected = sorted(set(range(num_envs)) - set(envs_to_pause))
 
-    assert envs._running == expected  # type: ignore[attr-defined]
+    assert envs._running == expected
 
     assert list(test_recurrent_hidden_states.size()) == [len(expected), 4, 512]
     assert test_recurrent_hidden_states[:, 0, 0].numpy().tolist() == expected
@@ -435,33 +328,3 @@ def test_pausing():
     num_envs = 8
     __do_pause_test(num_envs, [])
     __do_pause_test(num_envs, list(range(num_envs)))
-
-
-@pytest.mark.skipif(
-    not baseline_installed, reason="baseline sub-module not installed"
-)
-@pytest.mark.parametrize(
-    "sensor_device,batched_device",
-    [("cpu", "cpu"), ("cpu", "cuda"), ("cuda", "cuda")],
-)
-def test_batch_obs(sensor_device, batched_device):
-    if (
-        "cuda" in (sensor_device, batched_device)
-        and not torch.cuda.is_available()
-    ):
-        pytest.skip("CUDA not avaliable")
-
-    sensor_device = torch.device(sensor_device)
-    batched_device = torch.device(batched_device)
-
-    numpy_if = lambda t: t.numpy() if sensor_device.type == "cpu" else t
-
-    sensors = [
-        {
-            f"{s}": numpy_if(torch.randn(128, 128, device=sensor_device))
-            for s in range(4)
-        }
-        for _ in range(4)
-    ]
-
-    _ = batch_obs(sensors, device=batched_device)
